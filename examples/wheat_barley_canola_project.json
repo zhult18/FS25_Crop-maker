@@ -1,0 +1,85 @@
+{
+  "crops": [
+    {
+      "name": "wheat",
+      "title": "Wheat",
+      "preset": "grain",
+      "cycles": [
+        {
+          "seed_months": [
+            9,
+            10
+          ],
+          "harvest_months": [
+            7,
+            8
+          ],
+          "first_dormant_month": 11,
+          "last_dormant_month": 2
+        },
+        {
+          "seed_months": [
+            3,
+            4
+          ],
+          "harvest_months": [
+            8,
+            9
+          ],
+          "first_dormant_month": 0,
+          "last_dormant_month": 0
+        }
+      ]
+    },
+    {
+      "name": "barley",
+      "title": "Barley",
+      "preset": "grain",
+      "cycles": [
+        {
+          "seed_months": [
+            9,
+            10
+          ],
+          "harvest_months": [
+            6,
+            7
+          ],
+          "first_dormant_month": 11,
+          "last_dormant_month": 2
+        },
+        {
+          "seed_months": [
+            3,
+            4
+          ],
+          "harvest_months": [
+            7,
+            8
+          ],
+          "first_dormant_month": 0,
+          "last_dormant_month": 0
+        }
+      ]
+    },
+    {
+      "name": "canola",
+      "title": "Canola / Rapeseed",
+      "preset": "oilseed",
+      "cycles": [
+        {
+          "seed_months": [
+            8,
+            9
+          ],
+          "harvest_months": [
+            7,
+            8
+          ],
+          "first_dormant_month": 11,
+          "last_dormant_month": 2
+        }
+      ]
+    }
+  ]
+}
