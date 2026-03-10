@@ -1,0 +1,1489 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FS25 Crop Maker</title>
+  <style>
+    :root {
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+      margin-bottom: 12px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin: 16px 0;
+    }
+
+    .tab-btn {
+      background: #334155;
+    }
+
+    .tab-btn.active {
+      background: #2563eb;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+
+    .panel {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 16px;
+    }
+
+    .span-4 { grid-column: span 4; }
+    .span-8 { grid-column: span 8; }
+    .span-12 { grid-column: span 12; }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 13px;
+      color: #cbd5e1;
+    }
+
+    input, select, textarea, button {
+      font: inherit;
+    }
+
+    input, select, textarea {
+      background: #0f172a;
+      color: #e2e8f0;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 9px 10px;
+      width: 100%;
+    }
+
+    textarea {
+      min-height: 210px;
+      resize: vertical;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #fff;
+      background: #2563eb;
+    }
+
+    button.secondary {
+      background: #475569;
+    }
+
+    button.danger {
+      background: #b91c1c;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      border-bottom: 1px solid #334155;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .crop-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .crop-icon {
+      width: 20px;
+      text-align: center;
+      display: inline-block;
+    }
+
+    .calendar-wrap {
+      overflow: auto;
+      border: 1px solid #334155;
+      border-radius: 10px;
+    }
+
+    .calendar {
+      min-width: 980px;
+    }
+
+    .calendar td {
+      text-align: center;
+      user-select: none;
+    }
+
+    .month-cell {
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .month-cell.none { background: transparent; color: #94a3b8; }
+    .month-cell.sow { background: #14532d; color: #bbf7d0; }
+    .month-cell.harvest { background: #78350f; color: #fde68a; }
+    .month-cell.both { color: #f8fafc; }
+    .month-cell.both.sow-top {
+      background: linear-gradient(180deg, #14532d 0%, #14532d 50%, #78350f 50%, #78350f 100%);
+    }
+    .month-cell.both.harvest-top {
+      background: linear-gradient(180deg, #78350f 0%, #78350f 50%, #14532d 50%, #14532d 100%);
+    }
+
+    .muted {
+      color: #94a3b8;
+      font-size: 13px;
+      margin: 0;
+    }
+
+    @media (max-width: 980px) {
+      .span-4, .span-8, .span-12 {
+        grid-column: span 12;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FS25 Crop Maker UI</h1>
+    <p class="muted">Create crops, manage the crop calendar, and watch XML output auto-update.</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="inputs">Inputs</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="add-crop">Add Crop</button>
+      <button class="tab-btn" data-tab="editor">Crop Editor</button>
+      <button class="tab-btn" data-tab="fill-categories">Fill Categories</button>
+      <button class="tab-btn" data-tab="calendar">Calendar</button>
+      <button class="tab-btn" data-tab="exports">Exports</button>
+    </div>
+
+    <section id="tab-settings" class="tab-content">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Settings</h2>
+          <div class="grid">
+            <div class="field span-4">
+              <label for="mapName">Map Name</label>
+              <input id="mapName" type="text" value="MyMap" />
+            </div>
+            <div class="field span-4">
+              <label for="fruitRoot">Fruit XML Root</label>
+              <input id="fruitRoot" type="text" value="fruitTypes" />
+            </div>
+            <div class="field span-4">
+              <label for="fillRoot">Fill XML Root</label>
+              <input id="fillRoot" type="text" value="fillTypes" />
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-add-crop" class="tab-content">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Add Crop</h2>
+          <div class="grid">
+            <div class="field span-4">
+              <label for="cropName">Crop Name (internal)</label>
+              <input id="cropName" type="text" placeholder="RYE" />
+            </div>
+            <div class="field span-4">
+              <label for="cropTitle">Crop Title (display)</label>
+              <input id="cropTitle" type="text" placeholder="Rye" />
+            </div>
+            <div class="field span-4">
+              <label for="cropFillType">Fill Type</label>
+              <input id="cropFillType" type="text" placeholder="RYE" />
+            </div>
+            <div class="field span-4">
+              <label for="growthStates">Growth States</label>
+              <input id="growthStates" type="number" min="1" value="8" />
+            </div>
+            <div class="field span-4">
+              <label for="seedRate">Seed Usage (l/ha)</label>
+              <input id="seedRate" type="number" min="1" value="180" />
+            </div>
+            <div class="field span-4">
+              <label for="windrow">Has Windrow</label>
+              <select id="windrow">
+                <option value="true" selected>true</option>
+                <option value="false">false</option>
+              </select>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="addCropBtn">Add Crop</button>
+            <button id="clearBtn" class="secondary">Clear Form</button>
+            <button id="resetBtn" class="danger">Restore FS25 Defaults</button>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-editor" class="tab-content">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Crops</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Title</th>
+                <th>Fill Type</th>
+                <th>Growth</th>
+                <th>Seed l/ha</th>
+                <th>Windrow</th>
+                <th>Sow</th>
+                <th>Harvest</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="cropTable"></tbody>
+          </table>
+        </section>
+
+      </div>
+    </section>
+
+    <section id="tab-calendar" class="tab-content">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Crop Calendar</h2>
+          <p class="muted">Click a month cell to cycle: empty → sow → harvest → both → empty.</p>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="clearAllMonthsBtn" class="danger">Clear All Months</button>
+          </div>
+          <div class="calendar-wrap">
+            <table class="calendar">
+              <thead id="calendarHead"></thead>
+              <tbody id="calendarBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-inputs" class="tab-content active">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Input Files</h2>
+          <p class="muted">Upload current XML files to edit from them. If you do not upload a file, the built-in default database files are used.</p>
+          <div class="grid">
+            <div class="field span-6">
+              <label for="inputFillTypesFile">maps_fillTypes.xml</label>
+              <input id="inputFillTypesFile" type="file" accept=".xml" />
+              <p id="fillInputStatus" class="muted">Source: Default</p>
+            </div>
+            <div class="field span-6">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button id="resetFillInputBtn" class="secondary">Use Default FillTypes</button>
+              </div>
+            </div>
+
+            <div class="field span-6">
+              <label for="inputFruitTypesFile">maps_fruitTypes.xml</label>
+              <input id="inputFruitTypesFile" type="file" accept=".xml" />
+              <p id="fruitInputStatus" class="muted">Source: Default</p>
+            </div>
+            <div class="field span-6">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button id="resetFruitInputBtn" class="secondary">Use Default FruitTypes</button>
+              </div>
+            </div>
+
+            <div class="field span-6">
+              <label for="inputCalendarFile">maps_cropCalendar.xml</label>
+              <input id="inputCalendarFile" type="file" accept=".xml" />
+              <p id="calendarInputStatus" class="muted">Source: Generated</p>
+            </div>
+            <div class="field span-6">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button id="resetCalendarInputBtn" class="secondary">Use Generated Calendar</button>
+              </div>
+            </div>
+
+            <div class="field span-6">
+              <label for="inputEnvironmentFile">environment.xml</label>
+              <input id="inputEnvironmentFile" type="file" accept=".xml" />
+              <p id="environmentInputStatus" class="muted">Source: Default</p>
+            </div>
+            <div class="field span-6">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button id="resetEnvironmentInputBtn" class="secondary">Use Default Environment</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-exports" class="tab-content">
+      <div class="grid">
+        <section class="panel span-6">
+          <h2>Generated maps_fruitTypes.xml</h2>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="downloadFruitBtn">Download Fruit XML</button>
+            <button id="regenFruitBtn" class="secondary">Regenerate</button>
+            <label style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+              <input id="autoFruitSync" type="checkbox" checked /> Auto Sync
+            </label>
+          </div>
+          <textarea id="fruitXml" spellcheck="false"></textarea>
+        </section>
+
+        <section class="panel span-6">
+          <h2>Generated maps_fillTypes.xml</h2>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="downloadFillBtn">Download Fill XML</button>
+            <button id="regenFillBtn" class="secondary">Regenerate</button>
+            <label style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+              <input id="autoFillSync" type="checkbox" checked /> Auto Sync
+            </label>
+          </div>
+          <textarea id="fillXml" spellcheck="false"></textarea>
+        </section>
+
+        <section class="panel span-12">
+          <h2>Generated maps_cropCalendar.xml</h2>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="downloadCalendarBtn">Download Calendar XML</button>
+            <button id="regenCalendarBtn" class="secondary">Regenerate</button>
+            <label style="display:inline-flex; align-items:center; gap:6px; margin:0;">
+              <input id="autoCalendarSync" type="checkbox" checked /> Auto Sync
+            </label>
+            <button id="downloadAllZipBtn" class="secondary">Export All (ZIP)</button>
+          </div>
+          <textarea id="calendarXml" spellcheck="false"></textarea>
+        </section>
+
+        <section class="panel span-12">
+          <h2>Default maps_fruitTypes.xml (Full, Editable)</h2>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="downloadFullFruitBtn">Download Full FruitTypes XML</button>
+          </div>
+          <textarea id="fullFruitXml" spellcheck="false"></textarea>
+        </section>
+
+        <section class="panel span-12">
+          <h2>Default environment.xml (Full, Editable)</h2>
+          <div class="grid">
+            <div class="field span-4">
+              <label for="envProfile">Environment Profile</label>
+              <select id="envProfile">
+                <option value="US">US</option>
+                <option value="EU">EU</option>
+                <option value="AS">AS</option>
+              </select>
+            </div>
+            <div class="field span-8">
+              <label>&nbsp;</label>
+              <div class="btn-row">
+                <button id="loadEnvProfileBtn" class="secondary">Load Profile Template</button>
+                <button id="downloadEnvironmentBtn">Download Environment XML</button>
+              </div>
+            </div>
+          </div>
+          <textarea id="environmentXml" spellcheck="false"></textarea>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-fill-categories" class="tab-content">
+      <div class="grid">
+        <section class="panel span-12">
+          <h2>Edit fillTypeCategories Section</h2>
+          <p class="muted">Edit the full <code>&lt;fillTypeCategories&gt;...&lt;/fillTypeCategories&gt;</code> block used in maps_fillTypes.xml generation.</p>
+          <div class="btn-row" style="margin-bottom: 10px;">
+            <button id="validateFillCategoriesBtn" class="secondary">Validate Section</button>
+            <p id="fillCategoriesValidationMsg" class="muted" style="margin:0;"></p>
+          </div>
+          <textarea id="fillTypeCategoriesXml" spellcheck="false"></textarea>
+        </section>
+      </div>
+    </section>
+  </div>
+
+  <script src="defaultCrops.js"></script>
+  <script src="defaultFillTypesTemplate.js"></script>
+  <script src="defaultFruitTypesTemplate.js"></script>
+  <script src="defaultEnvironmentTemplates.js"></script>
+  <script>
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const originalFillTypeOrder = [
+      "BARLEY", "BEETROOT", "CANOLA", "CARROT", "COTTON", "GRAPE", "GRASS", "GREENBEAN",
+      "MAIZE", "OAT", "OILSEEDRADISH", "OLIVE", "PARSNIP", "PEA", "POPLAR", "POTATO",
+      "RICE", "RICELONGGRAIN", "SORGHUM", "SOYBEAN", "SPINACH", "SUGARBEET", "SUGARCANE",
+      "SUNFLOWER", "WHEAT"
+    ];
+    const originalFillTypeTitles = {
+      BARLEY: "Barley",
+      BEETROOT: "Beet Root",
+      CANOLA: "Canola",
+      CARROT: "Carrot",
+      COTTON: "Cotton",
+      GRAPE: "Grape",
+      GRASS: "Grass",
+      GREENBEAN: "Green Bean",
+      MAIZE: "Maize",
+      OAT: "Oat",
+      OILSEEDRADISH: "Oilseed Radish",
+      OLIVE: "Olive",
+      PARSNIP: "Parsnip",
+      PEA: "Pea",
+      POPLAR: "Poplar",
+      POTATO: "Potato",
+      RICE: "Rice",
+      RICELONGGRAIN: "Rice Long Grain",
+      SORGHUM: "Sorghum",
+      SOYBEAN: "Soybean",
+      SPINACH: "Spinach",
+      SUGARBEET: "Sugar Beet",
+      SUGARCANE: "Sugar Cane",
+      SUNFLOWER: "Sunflower",
+      WHEAT: "Wheat"
+    };
+
+    const cropName = document.getElementById("cropName");
+    const cropTitle = document.getElementById("cropTitle");
+    const cropFillType = document.getElementById("cropFillType");
+    const growthStates = document.getElementById("growthStates");
+    const seedRate = document.getElementById("seedRate");
+    const windrow = document.getElementById("windrow");
+    const cropTable = document.getElementById("cropTable");
+    const fruitXml = document.getElementById("fruitXml");
+    const fillXml = document.getElementById("fillXml");
+    const calendarXml = document.getElementById("calendarXml");
+    const autoFruitSync = document.getElementById("autoFruitSync");
+    const autoFillSync = document.getElementById("autoFillSync");
+    const autoCalendarSync = document.getElementById("autoCalendarSync");
+    const fullFruitXml = document.getElementById("fullFruitXml");
+    const environmentXml = document.getElementById("environmentXml");
+    const mapName = document.getElementById("mapName");
+    const fruitRoot = document.getElementById("fruitRoot");
+    const fillRoot = document.getElementById("fillRoot");
+    const calendarHead = document.getElementById("calendarHead");
+    const calendarBody = document.getElementById("calendarBody");
+    const envProfile = document.getElementById("envProfile");
+    const inputFillTypesFile = document.getElementById("inputFillTypesFile");
+    const inputFruitTypesFile = document.getElementById("inputFruitTypesFile");
+    const inputCalendarFile = document.getElementById("inputCalendarFile");
+    const inputEnvironmentFile = document.getElementById("inputEnvironmentFile");
+    const fillInputStatus = document.getElementById("fillInputStatus");
+    const fruitInputStatus = document.getElementById("fruitInputStatus");
+    const calendarInputStatus = document.getElementById("calendarInputStatus");
+    const environmentInputStatus = document.getElementById("environmentInputStatus");
+    const fillTypeCategoriesXml = document.getElementById("fillTypeCategoriesXml");
+    const fillCategoriesValidationMsg = document.getElementById("fillCategoriesValidationMsg");
+
+    const defaultFillTemplate = typeof window.BUILTIN_FULL_FILLTYPES_XML === "string"
+      ? window.BUILTIN_FULL_FILLTYPES_XML
+      : ((window.BUILTIN_FULL_FILLTYPES_XML && typeof window.BUILTIN_FULL_FILLTYPES_XML.value === "string") ? window.BUILTIN_FULL_FILLTYPES_XML.value : "");
+    const runtimeInputs = {
+      fillTemplateXml: defaultFillTemplate,
+      fullFruitTemplateXml: window.BUILTIN_FULL_FRUITTYPES_XML || ""
+    };
+    const inputSourceState = {
+      fill: "default",
+      fruit: "default",
+      calendar: "generated",
+      environment: "default"
+    };
+    const builtinEnvironmentProfiles = (window.BUILTIN_ENVIRONMENT_XML && typeof window.BUILTIN_ENVIRONMENT_XML === "object")
+      ? window.BUILTIN_ENVIRONMENT_XML
+      : { US: "", EU: "", AS: "" };
+    const environmentProfilesState = { US: "", EU: "", AS: "" };
+
+    function getBuiltinEnvironmentProfileXml(profile) {
+      const source = builtinEnvironmentProfiles[profile];
+      if (typeof source === "string") {
+        return source;
+      }
+      if (source && typeof source.value === "string") {
+        return source.value;
+      }
+      return "";
+    }
+
+    function persistActiveEnvironmentProfile() {
+      const profile = envProfile.value || "US";
+      environmentProfilesState[profile] = environmentXml.value;
+    }
+
+    function loadActiveEnvironmentProfile(profile) {
+      const key = profile || "US";
+      envProfile.value = key;
+      environmentXml.value = environmentProfilesState[key] || getBuiltinEnvironmentProfileXml(key);
+    }
+
+    function readUploadedText(fileInput, onLoad) {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        onLoad(String(reader.result || ""));
+      };
+      reader.readAsText(file);
+    }
+
+    function extractFillTypeCategoriesSection(xmlText) {
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(String(xmlText || ""), "application/xml");
+      if (xmlDoc.querySelector("parsererror")) {
+        return "<fillTypeCategories>\n</fillTypeCategories>";
+      }
+      const node = xmlDoc.documentElement.querySelector("fillTypeCategories");
+      if (!node) {
+        return "<fillTypeCategories>\n</fillTypeCategories>";
+      }
+      return new XMLSerializer().serializeToString(node);
+    }
+
+    function importEditedFillTypeCategoriesNode(xmlDoc) {
+      const sectionText = String(fillTypeCategoriesXml.value || "").trim();
+      if (!sectionText) {
+        return null;
+      }
+
+      const parser = new DOMParser();
+      const wrapped = parser.parseFromString(`<root>${sectionText}</root>`, "application/xml");
+      if (wrapped.querySelector("parsererror")) {
+        return null;
+      }
+
+      const node = wrapped.documentElement.firstElementChild;
+      if (!node || node.tagName !== "fillTypeCategories") {
+        return null;
+      }
+
+      return xmlDoc.importNode(node, true);
+    }
+
+    function validateFillCategoriesSection(showSuccess = false) {
+      const sectionText = String(fillTypeCategoriesXml.value || "").trim();
+      if (!sectionText) {
+        fillCategoriesValidationMsg.textContent = "Section is empty."
+        return false;
+      }
+
+      const parser = new DOMParser();
+      const wrapped = parser.parseFromString(`<root>${sectionText}</root>`, "application/xml");
+      if (wrapped.querySelector("parsererror")) {
+        fillCategoriesValidationMsg.textContent = "Invalid XML in section.";
+        return false;
+      }
+
+      const node = wrapped.documentElement.firstElementChild;
+      if (!node || node.tagName !== "fillTypeCategories") {
+        fillCategoriesValidationMsg.textContent = "Section must start with <fillTypeCategories>.";
+        return false;
+      }
+
+      if (showSuccess) {
+        fillCategoriesValidationMsg.textContent = "Section is valid.";
+      }
+      return true;
+    }
+
+    function updateInputSourceStatus() {
+      fillInputStatus.textContent = `Source: ${inputSourceState.fill === "uploaded" ? "Uploaded" : "Default"}`;
+      fruitInputStatus.textContent = `Source: ${inputSourceState.fruit === "uploaded" ? "Uploaded" : "Default"}`;
+      calendarInputStatus.textContent = `Source: ${inputSourceState.calendar === "uploaded" ? "Uploaded" : "Generated"}`;
+      environmentInputStatus.textContent = `Source: ${inputSourceState.environment === "uploaded" ? "Uploaded" : "Default"}`;
+    }
+
+    let isMouseDown = false;
+    let paintValue = "";
+
+    function nextCalendarState(current) {
+      if (current === "") return "sow";
+      if (current === "sow") return "harvest";
+      if (current === "harvest") return "both";
+      return "";
+    }
+
+    function getCropIcon(crop) {
+      const key = String(crop.name || crop.title || "").toUpperCase();
+      const iconMap = {
+        WHEAT: "🌾",
+        BARLEY: "🌾",
+        OAT: "🌾",
+        CANOLA: "🌼",
+        MAIZE: "🌽",
+        CORN: "🌽",
+        SUNFLOWER: "🌻",
+        SOYBEAN: "🫘",
+        SORGHUM: "🌾",
+        POTATO: "🥔",
+        POTATOES: "🥔",
+        SUGARBEET: "🫚",
+        BEETROOT: "🫚",
+        REDBEET: "🫚",
+        CARROT: "🥕",
+        PARSNIP: "🥕",
+        PARSNIPS: "🥕",
+        GREENBEAN: "🫛",
+        GREENBEANS: "🫛",
+        PEA: "🫛",
+        PEAS: "🫛",
+        SPINACH: "🥬",
+        RICE: "🌾",
+        RICELONGGRAIN: "🌾",
+        LONGGRAINRICE: "🌾",
+        COTTON: "☁️",
+        GRAPE: "🍇",
+        OLIVE: "🫒",
+        POPLAR: "🌳",
+        GRASS: "🌿",
+        OILSEEDRADISH: "🌱",
+        SUGARCANE: "🎋",
+        ONION: "🧅"
+      };
+      return iconMap[key] || "🌱";
+    }
+
+    function includesSow(value) {
+      return value === "sow" || value === "both";
+    }
+
+    function includesHarvest(value) {
+      return value === "harvest" || value === "both";
+    }
+
+    function toPureType(value) {
+      if (value === "sow") {
+        return "sow";
+      }
+      if (value === "harvest") {
+        return "harvest";
+      }
+      return "";
+    }
+
+    function resolveBothTopTypes(calendar) {
+      const topTypes = Array(12).fill("");
+
+      for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
+        if (calendar[monthIndex] !== "both") {
+          continue;
+        }
+
+        if (monthIndex > 0 && calendar[monthIndex - 1] === "both" && topTypes[monthIndex - 1]) {
+          topTypes[monthIndex] = topTypes[monthIndex - 1];
+          continue;
+        }
+
+        let leftIndex = monthIndex - 1;
+        while (leftIndex >= 0 && calendar[leftIndex] === "both") {
+          leftIndex--;
+        }
+
+        let rightIndex = monthIndex + 1;
+        while (rightIndex < 12 && calendar[rightIndex] === "both") {
+          rightIndex++;
+        }
+
+        const leftType = leftIndex >= 0 ? toPureType(calendar[leftIndex]) : "";
+        const rightType = rightIndex < 12 ? toPureType(calendar[rightIndex]) : "";
+
+        if (leftType && rightType) {
+          if (leftType === rightType) {
+            topTypes[monthIndex] = leftType;
+          } else {
+            const leftDistance = monthIndex - leftIndex;
+            const rightDistance = rightIndex - monthIndex;
+            topTypes[monthIndex] = leftDistance <= rightDistance ? leftType : rightType;
+          }
+        } else if (leftType) {
+          topTypes[monthIndex] = leftType;
+        } else if (rightType) {
+          topTypes[monthIndex] = rightType;
+        } else {
+          topTypes[monthIndex] = "sow";
+        }
+      }
+
+      return topTypes;
+    }
+
+    function buildCalendar(sowMonths, harvestMonths) {
+      const calendar = Array(12).fill("");
+      sowMonths.forEach((month) => {
+        if (month >= 1 && month <= 12) {
+          const index = month - 1;
+          calendar[index] = calendar[index] === "harvest" ? "both" : "sow";
+        }
+      });
+      harvestMonths.forEach((month) => {
+        if (month >= 1 && month <= 12) {
+          const index = month - 1;
+          calendar[index] = calendar[index] === "sow" ? "both" : "harvest";
+        }
+      });
+      return calendar;
+    }
+
+    const fallbackCrops = [
+      {
+        name: "WHEAT",
+        title: "Wheat",
+        fillType: "WHEAT",
+        growthStates: 10,
+        seedRate: 308,
+        windrow: true,
+        calendar: buildCalendar([9, 10], [7, 8])
+      }
+    ];
+
+    const defaultCrops = Array.isArray(window.BUILTIN_DEFAULT_CROPS) && window.BUILTIN_DEFAULT_CROPS.length
+      ? window.BUILTIN_DEFAULT_CROPS
+      : fallbackCrops;
+
+    const state = {
+      crops: [...defaultCrops]
+    };
+
+    function getCalendarMonths(crop, type) {
+      const monthsForType = [];
+      crop.calendar.forEach((value, index) => {
+        const isPlantingMonth = value === "sow" || value === "both";
+        const isHarvestMonth = value === "harvest" || value === "both";
+        if ((type === "sow" && isPlantingMonth) || (type === "harvest" && isHarvestMonth)) {
+          monthsForType.push(index + 1);
+        }
+      });
+      return monthsForType;
+    }
+
+    function formatMonthList(crop, type) {
+      const list = getCalendarMonths(crop, type);
+      return list.length ? list.join(",") : "";
+    }
+
+    function formatMonthRangeLabel(crop, type) {
+      const list = getCalendarMonths(crop, type);
+      if (!list.length) {
+        return "";
+      }
+
+      const ranges = [];
+      let rangeStart = list[0];
+      let rangeEnd = list[0];
+
+      for (let index = 1; index < list.length; index++) {
+        const month = list[index];
+        if (month === rangeEnd + 1) {
+          rangeEnd = month;
+          continue;
+        }
+
+        ranges.push(rangeStart === rangeEnd
+          ? months[rangeStart - 1]
+          : `${months[rangeStart - 1]}-${months[rangeEnd - 1]}`);
+        rangeStart = month;
+        rangeEnd = month;
+      }
+
+      ranges.push(rangeStart === rangeEnd
+        ? months[rangeStart - 1]
+        : `${months[rangeStart - 1]}-${months[rangeEnd - 1]}`);
+
+      return ranges.join(", ");
+    }
+
+    function escapeAttr(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function buildFruitXml() {
+      const root = escapeAttr(fruitRoot.value.trim() || "fruitTypes");
+      const map = escapeAttr(mapName.value.trim() || "MyMap");
+      const rows = state.crops.map((crop) => `  <fruitType name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" fillType="${escapeAttr(crop.fillType)}" growthNumStates="${escapeAttr(crop.growthStates)}" seedUsagePerHectare="${escapeAttr(crop.seedRate)}" hasWindrow="${escapeAttr(crop.windrow)}" plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
+      return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root} map=\"${map}\">`, ...rows, `</${root}>`].join("\n");
+    }
+
+    function buildFillXml() {
+      const managedCropFillTypes = new Set(originalFillTypeOrder.map((name) => String(name).toUpperCase()));
+      const byFillType = new Map();
+      state.crops.forEach((crop) => {
+        const key = String(crop.fillType || crop.name || "").trim().toUpperCase();
+        if (!key) {
+          return;
+        }
+
+        const hasCalendarMonths = Array.isArray(crop.calendar)
+          ? crop.calendar.some((value) => value === "sow" || value === "harvest" || value === "both")
+          : true;
+
+        if (managedCropFillTypes.has(key) && !hasCalendarMonths) {
+          return;
+        }
+
+        const title = originalFillTypeTitles[key] || crop.title || key;
+        if (!byFillType.has(key)) {
+          byFillType.set(key, { name: key, title });
+        }
+      });
+
+      const ordered = [];
+      originalFillTypeOrder.forEach((name) => {
+        if (byFillType.has(name)) {
+          ordered.push(byFillType.get(name));
+          byFillType.delete(name);
+        }
+      });
+
+      const extras = Array.from(byFillType.values()).sort((left, right) => left.name.localeCompare(right.name));
+      const finalRows = [...ordered, ...extras];
+
+      const templateXml = runtimeInputs.fillTemplateXml || "";
+
+      if (!templateXml) {
+        const root = escapeAttr(fillRoot.value.trim() || "fillTypes");
+        const rows = finalRows.map((entry) => `  <fillType name="${escapeAttr(entry.name)}" title="${escapeAttr(entry.title)}" showOnPriceTable=\"true\"/>`);
+        return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root}>`, ...rows, `</${root}>`].join("\n");
+      }
+
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(templateXml, "application/xml");
+      if (xmlDoc.querySelector("parsererror")) {
+        const root = escapeAttr(fillRoot.value.trim() || "fillTypes");
+        const rows = finalRows.map((entry) => `  <fillType name="${escapeAttr(entry.name)}" title="${escapeAttr(entry.title)}" showOnPriceTable=\"true\"/>`);
+        return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root}>`, ...rows, `</${root}>`].join("\n");
+      }
+
+      const mapNode = xmlDoc.documentElement;
+      const existingFillTypesNode = mapNode.querySelector("fillTypes");
+      if (!existingFillTypesNode) {
+        const root = escapeAttr(fillRoot.value.trim() || "fillTypes");
+        const rows = finalRows.map((entry) => `  <fillType name="${escapeAttr(entry.name)}" title="${escapeAttr(entry.title)}" showOnPriceTable=\"true\"/>`);
+        return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root}>`, ...rows, `</${root}>`].join("\n");
+      }
+
+      const templatesByName = new Map();
+      Array.from(existingFillTypesNode.children).forEach((node) => {
+        if (node.tagName !== "fillType") {
+          return;
+        }
+        const name = String(node.getAttribute("name") || "").toUpperCase();
+        if (name && !templatesByName.has(name)) {
+          templatesByName.set(name, node);
+        }
+      });
+
+      const selectedFillTypes = new Set(finalRows.map((entry) => entry.name));
+
+      const newFillTypesNode = xmlDoc.createElement("fillTypes");
+      const emittedNames = new Set();
+
+      Array.from(existingFillTypesNode.children).forEach((node) => {
+        if (node.tagName !== "fillType") {
+          return;
+        }
+
+        const name = String(node.getAttribute("name") || "").toUpperCase();
+        if (!name) {
+          return;
+        }
+
+        if (managedCropFillTypes.has(name) && !selectedFillTypes.has(name)) {
+          return;
+        }
+
+        newFillTypesNode.appendChild(node.cloneNode(true));
+        emittedNames.add(name);
+      });
+
+      finalRows.forEach((entry) => {
+        if (emittedNames.has(entry.name)) {
+          return;
+        }
+
+        const templateNode = templatesByName.get(entry.name);
+        if (templateNode) {
+          newFillTypesNode.appendChild(templateNode.cloneNode(true));
+          emittedNames.add(entry.name);
+          return;
+        }
+
+        const minimal = xmlDoc.createElement("fillType");
+        minimal.setAttribute("name", entry.name);
+        minimal.setAttribute("title", entry.title);
+        minimal.setAttribute("showOnPriceTable", "true");
+        newFillTypesNode.appendChild(minimal);
+        emittedNames.add(entry.name);
+      });
+
+      mapNode.replaceChild(newFillTypesNode, existingFillTypesNode);
+
+      const existingCategoriesNode = mapNode.querySelector("fillTypeCategories");
+      const editedCategoriesNode = importEditedFillTypeCategoriesNode(xmlDoc);
+      if (editedCategoriesNode) {
+        if (existingCategoriesNode) {
+          mapNode.replaceChild(editedCategoriesNode, existingCategoriesNode);
+        } else {
+          mapNode.appendChild(editedCategoriesNode);
+        }
+      }
+
+      const filterFillTypeList = (value) => {
+        const tokens = String(value || "").trim().split(/\s+/).filter(Boolean);
+        const filtered = tokens.filter((token) => {
+          const upperToken = token.toUpperCase();
+          if (!managedCropFillTypes.has(upperToken)) {
+            return true;
+          }
+          return selectedFillTypes.has(upperToken);
+        });
+        return filtered.join(" ");
+      };
+
+      const categoryNodes = mapNode.querySelectorAll("fillTypeCategories > fillTypeCategory");
+      categoryNodes.forEach((categoryNode) => {
+        const nextValue = filterFillTypeList(categoryNode.textContent || "");
+        categoryNode.textContent = nextValue;
+      });
+
+      const soundNodes = Array.from(mapNode.querySelectorAll("fillTypeSounds > fillTypeSound"));
+      soundNodes.forEach((soundNode) => {
+        if (!soundNode.hasAttribute("fillTypes")) {
+          return;
+        }
+
+        const nextValue = filterFillTypeList(soundNode.getAttribute("fillTypes") || "");
+        if (!nextValue) {
+          soundNode.parentNode.removeChild(soundNode);
+          return;
+        }
+        soundNode.setAttribute("fillTypes", nextValue);
+      });
+
+      const serializer = new XMLSerializer();
+      const serialized = serializer.serializeToString(xmlDoc);
+      if (/^\s*<\?xml/i.test(serialized)) {
+        return serialized;
+      }
+      return `<?xml version="1.0" encoding="utf-8" standalone="no"?>\n${serialized}`;
+    }
+
+    function buildCalendarXml() {
+      const map = escapeAttr(mapName.value.trim() || "MyMap");
+      const rows = state.crops.map((crop) => `  <crop name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
+      return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<cropCalendar map=\"${map}\">`, ...rows, "</cropCalendar>"].join("\n");
+    }
+
+    function renderTable() {
+      cropTable.innerHTML = "";
+      state.crops.forEach((crop, index) => {
+        const tr = document.createElement("tr");
+        const icon = getCropIcon(crop);
+        tr.innerHTML = `
+          <td><span class="crop-label"><span class="crop-icon">${icon}</span>${crop.name}</span></td>
+          <td>${crop.title}</td>
+          <td>${crop.fillType}</td>
+          <td>${crop.growthStates}</td>
+          <td>${crop.seedRate}</td>
+          <td>${crop.windrow}</td>
+          <td>${formatMonthRangeLabel(crop, "sow") || "-"}</td>
+          <td>${formatMonthRangeLabel(crop, "harvest") || "-"}</td>
+          <td><button class="danger" data-remove="${index}">Remove</button></td>
+        `;
+        cropTable.appendChild(tr);
+      });
+      cropTable.querySelectorAll("button[data-remove]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const index = Number(btn.getAttribute("data-remove"));
+          state.crops.splice(index, 1);
+          renderAll();
+        });
+      });
+    }
+
+    function renderCalendar() {
+      calendarHead.innerHTML = "";
+      calendarBody.innerHTML = "";
+
+      const headRow = document.createElement("tr");
+      headRow.innerHTML = `<th>Crop</th>${months.map((month) => `<th>${month}</th>`).join("")}`;
+      calendarHead.appendChild(headRow);
+
+      state.crops.forEach((crop, cropIndex) => {
+        if (!Array.isArray(crop.calendar) || crop.calendar.length !== 12) {
+          crop.calendar = Array(12).fill("");
+        }
+
+        const bothTopTypes = resolveBothTopTypes(crop.calendar);
+
+        const row = document.createElement("tr");
+        const monthCells = crop.calendar.map((value, monthIndex) => {
+          const topType = value === "both" ? bothTopTypes[monthIndex] : "";
+          const text = value === "sow" ? "🌱" : value === "harvest" ? "🌾" : value === "both" ? (topType === "sow" ? "🌱/🌾" : "🌾/🌱") : "-";
+          const cls = value === "both" ? `both ${topType === "sow" ? "sow-top" : "harvest-top"}` : (value || "none");
+          return `<td class="month-cell ${cls}" data-crop="${cropIndex}" data-month="${monthIndex}">${text}</td>`;
+        }).join("");
+
+        const icon = getCropIcon(crop);
+        row.innerHTML = `<td><span class="crop-label"><span class="crop-icon">${icon}</span><strong>${crop.title}</strong></span></td>${monthCells}`;
+        calendarBody.appendChild(row);
+      });
+
+      calendarBody.querySelectorAll(".month-cell").forEach((cell) => {
+        cell.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          const cropIndex = Number(cell.getAttribute("data-crop"));
+          const monthIndex = Number(cell.getAttribute("data-month"));
+          const current = state.crops[cropIndex].calendar[monthIndex];
+          const next = nextCalendarState(current);
+          isMouseDown = true;
+          paintValue = next;
+          state.crops[cropIndex].calendar[monthIndex] = next;
+          renderAll();
+        });
+
+        cell.addEventListener("mouseenter", () => {
+          if (!isMouseDown) {
+            return;
+          }
+          const cropIndex = Number(cell.getAttribute("data-crop"));
+          const monthIndex = Number(cell.getAttribute("data-month"));
+          state.crops[cropIndex].calendar[monthIndex] = paintValue;
+          renderAll();
+        });
+      });
+    }
+
+    function updateGeneratedXml(force = false) {
+      if (force || autoFruitSync.checked) {
+        fruitXml.value = buildFruitXml();
+      }
+      if (force || autoFillSync.checked) {
+        fillXml.value = buildFillXml();
+      }
+      if (force || autoCalendarSync.checked) {
+        calendarXml.value = buildCalendarXml();
+      }
+    }
+
+    function renderAll() {
+      renderTable();
+      renderCalendar();
+      updateGeneratedXml(false);
+    }
+
+    function addCrop() {
+      const name = cropName.value.trim().toUpperCase();
+      const title = cropTitle.value.trim();
+      const fillType = cropFillType.value.trim().toUpperCase();
+      const growth = Number(growthStates.value);
+      const seed = Number(seedRate.value);
+      const hasWindrow = windrow.value === "true";
+
+      if (!name || !title || !fillType || !growth || !seed) {
+        alert("Please fill in all crop fields.");
+        return;
+      }
+
+      state.crops.push({
+        name,
+        title,
+        fillType,
+        growthStates: growth,
+        seedRate: seed,
+        windrow: hasWindrow,
+        calendar: Array(12).fill("")
+      });
+      renderAll();
+    }
+
+    function clearForm() {
+      cropName.value = "";
+      cropTitle.value = "";
+      cropFillType.value = "";
+      growthStates.value = 8;
+      seedRate.value = 180;
+      windrow.value = "true";
+    }
+
+    function clearAllCalendarMonths() {
+      state.crops.forEach((crop) => {
+        crop.calendar = Array(12).fill("");
+      });
+      renderAll();
+    }
+
+    function downloadFile(name, content) {
+      const blob = new Blob([content], { type: "application/xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function getCrc32(bytes) {
+      let crc = 0 ^ -1;
+      for (let index = 0; index < bytes.length; index++) {
+        crc ^= bytes[index];
+        for (let shift = 0; shift < 8; shift++) {
+          crc = (crc >>> 1) ^ ((crc & 1) ? 0xEDB88320 : 0);
+        }
+      }
+      return (crc ^ -1) >>> 0;
+    }
+
+    function writeUInt16LE(value, target, offset) {
+      target[offset] = value & 0xff;
+      target[offset + 1] = (value >>> 8) & 0xff;
+    }
+
+    function writeUInt32LE(value, target, offset) {
+      target[offset] = value & 0xff;
+      target[offset + 1] = (value >>> 8) & 0xff;
+      target[offset + 2] = (value >>> 16) & 0xff;
+      target[offset + 3] = (value >>> 24) & 0xff;
+    }
+
+    function buildZipBlob(files) {
+      const encoder = new TextEncoder();
+      const localChunks = [];
+      const centralChunks = [];
+      let localOffset = 0;
+      let centralSize = 0;
+
+      files.forEach((file) => {
+        const nameBytes = encoder.encode(file.name);
+        const dataBytes = encoder.encode(file.content || "");
+        const crc32 = getCrc32(dataBytes);
+
+        const localHeader = new Uint8Array(30 + nameBytes.length);
+        writeUInt32LE(0x04034b50, localHeader, 0);
+        writeUInt16LE(20, localHeader, 4);
+        writeUInt16LE(0, localHeader, 6);
+        writeUInt16LE(0, localHeader, 8);
+        writeUInt16LE(0, localHeader, 10);
+        writeUInt16LE(0, localHeader, 12);
+        writeUInt32LE(crc32, localHeader, 14);
+        writeUInt32LE(dataBytes.length, localHeader, 18);
+        writeUInt32LE(dataBytes.length, localHeader, 22);
+        writeUInt16LE(nameBytes.length, localHeader, 26);
+        writeUInt16LE(0, localHeader, 28);
+        localHeader.set(nameBytes, 30);
+
+        localChunks.push(localHeader, dataBytes);
+
+        const centralHeader = new Uint8Array(46 + nameBytes.length);
+        writeUInt32LE(0x02014b50, centralHeader, 0);
+        writeUInt16LE(20, centralHeader, 4);
+        writeUInt16LE(20, centralHeader, 6);
+        writeUInt16LE(0, centralHeader, 8);
+        writeUInt16LE(0, centralHeader, 10);
+        writeUInt16LE(0, centralHeader, 12);
+        writeUInt16LE(0, centralHeader, 14);
+        writeUInt32LE(crc32, centralHeader, 16);
+        writeUInt32LE(dataBytes.length, centralHeader, 20);
+        writeUInt32LE(dataBytes.length, centralHeader, 24);
+        writeUInt16LE(nameBytes.length, centralHeader, 28);
+        writeUInt16LE(0, centralHeader, 30);
+        writeUInt16LE(0, centralHeader, 32);
+        writeUInt16LE(0, centralHeader, 34);
+        writeUInt16LE(0, centralHeader, 36);
+        writeUInt32LE(0, centralHeader, 38);
+        writeUInt32LE(localOffset, centralHeader, 42);
+        centralHeader.set(nameBytes, 46);
+
+        centralChunks.push(centralHeader);
+        centralSize += centralHeader.length;
+        localOffset += localHeader.length + dataBytes.length;
+      });
+
+      const endRecord = new Uint8Array(22);
+      writeUInt32LE(0x06054b50, endRecord, 0);
+      writeUInt16LE(0, endRecord, 4);
+      writeUInt16LE(0, endRecord, 6);
+      writeUInt16LE(files.length, endRecord, 8);
+      writeUInt16LE(files.length, endRecord, 10);
+      writeUInt32LE(centralSize, endRecord, 12);
+      writeUInt32LE(localOffset, endRecord, 16);
+      writeUInt16LE(0, endRecord, 20);
+
+      return new Blob([...localChunks, ...centralChunks, endRecord], { type: "application/zip" });
+    }
+
+    function downloadZip(name, files) {
+      const zipBlob = buildZipBlob(files);
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
+
+    document.getElementById("addCropBtn").addEventListener("click", addCrop);
+    document.getElementById("clearBtn").addEventListener("click", clearForm);
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      state.crops = defaultCrops.map((crop) => ({ ...crop, calendar: [...crop.calendar] }));
+      renderAll();
+    });
+
+    document.getElementById("downloadFruitBtn").addEventListener("click", () => {
+      downloadFile("maps_fruitTypes.xml", fruitXml.value);
+    });
+
+    document.getElementById("downloadFillBtn").addEventListener("click", () => {
+      downloadFile("maps_fillTypes.xml", fillXml.value);
+    });
+
+    document.getElementById("downloadCalendarBtn").addEventListener("click", () => {
+      downloadFile("maps_cropCalendar.xml", calendarXml.value);
+    });
+
+    document.getElementById("regenFruitBtn").addEventListener("click", () => {
+      autoFruitSync.checked = true;
+      fruitXml.value = buildFruitXml();
+    });
+
+    document.getElementById("regenFillBtn").addEventListener("click", () => {
+      autoFillSync.checked = true;
+      fillXml.value = buildFillXml();
+    });
+
+    document.getElementById("regenCalendarBtn").addEventListener("click", () => {
+      autoCalendarSync.checked = true;
+      calendarXml.value = buildCalendarXml();
+    });
+
+    document.getElementById("downloadAllZipBtn").addEventListener("click", () => {
+      persistActiveEnvironmentProfile();
+      downloadZip("fs25_exports.zip", [
+        { name: "maps_fruitTypes.xml", content: fruitXml.value },
+        { name: "maps_fillTypes.xml", content: fillXml.value },
+        { name: "maps_cropCalendar.xml", content: calendarXml.value },
+        { name: "mapUS_environment.xml", content: environmentProfilesState.US },
+        { name: "mapEU_environment.xml", content: environmentProfilesState.EU },
+        { name: "mapAS_environment.xml", content: environmentProfilesState.AS }
+      ]);
+    });
+
+    document.getElementById("downloadFullFruitBtn").addEventListener("click", () => {
+      downloadFile("maps_fruitTypes.xml", fullFruitXml.value);
+    });
+
+    document.getElementById("downloadEnvironmentBtn").addEventListener("click", () => {
+      const profile = envProfile.value || "US";
+      downloadFile(`environment_${profile}.xml`, environmentXml.value);
+    });
+
+    document.getElementById("loadEnvProfileBtn").addEventListener("click", () => {
+      const profile = envProfile.value || "US";
+      environmentProfilesState[profile] = getBuiltinEnvironmentProfileXml(profile);
+      loadActiveEnvironmentProfile(profile);
+    });
+
+    envProfile.addEventListener("change", () => {
+      persistActiveEnvironmentProfile();
+      loadActiveEnvironmentProfile(envProfile.value || "US");
+    });
+
+    inputFillTypesFile.addEventListener("change", () => {
+      readUploadedText(inputFillTypesFile, (text) => {
+        runtimeInputs.fillTemplateXml = text;
+        fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(text);
+        inputSourceState.fill = "uploaded";
+        updateInputSourceStatus();
+        autoFillSync.checked = true;
+        fillXml.value = buildFillXml();
+      });
+    });
+
+    inputFruitTypesFile.addEventListener("change", () => {
+      readUploadedText(inputFruitTypesFile, (text) => {
+        runtimeInputs.fullFruitTemplateXml = text;
+        inputSourceState.fruit = "uploaded";
+        updateInputSourceStatus();
+        fullFruitXml.value = text;
+      });
+    });
+
+    inputCalendarFile.addEventListener("change", () => {
+      readUploadedText(inputCalendarFile, (text) => {
+        calendarXml.value = text;
+        inputSourceState.calendar = "uploaded";
+        updateInputSourceStatus();
+        autoCalendarSync.checked = false;
+      });
+    });
+
+    inputEnvironmentFile.addEventListener("change", () => {
+      readUploadedText(inputEnvironmentFile, (text) => {
+        const profile = envProfile.value || "US";
+        environmentProfilesState[profile] = text;
+        loadActiveEnvironmentProfile(profile);
+        inputSourceState.environment = "uploaded";
+        updateInputSourceStatus();
+      });
+    });
+
+    document.getElementById("resetFillInputBtn").addEventListener("click", () => {
+      runtimeInputs.fillTemplateXml = defaultFillTemplate;
+      fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(defaultFillTemplate);
+      inputSourceState.fill = "default";
+      updateInputSourceStatus();
+      if (inputFillTypesFile) {
+        inputFillTypesFile.value = "";
+      }
+      autoFillSync.checked = true;
+      fillXml.value = buildFillXml();
+    });
+
+    document.getElementById("resetFruitInputBtn").addEventListener("click", () => {
+      runtimeInputs.fullFruitTemplateXml = window.BUILTIN_FULL_FRUITTYPES_XML || "";
+      inputSourceState.fruit = "default";
+      updateInputSourceStatus();
+      fullFruitXml.value = runtimeInputs.fullFruitTemplateXml;
+      if (inputFruitTypesFile) {
+        inputFruitTypesFile.value = "";
+      }
+    });
+
+    document.getElementById("resetCalendarInputBtn").addEventListener("click", () => {
+      inputSourceState.calendar = "generated";
+      updateInputSourceStatus();
+      autoCalendarSync.checked = true;
+      calendarXml.value = buildCalendarXml();
+      if (inputCalendarFile) {
+        inputCalendarFile.value = "";
+      }
+    });
+
+    document.getElementById("resetEnvironmentInputBtn").addEventListener("click", () => {
+      inputSourceState.environment = "default";
+      updateInputSourceStatus();
+      const profile = envProfile.value || "US";
+      environmentProfilesState[profile] = getBuiltinEnvironmentProfileXml(profile);
+      loadActiveEnvironmentProfile(profile);
+      if (inputEnvironmentFile) {
+        inputEnvironmentFile.value = "";
+      }
+    });
+
+    document.getElementById("clearAllMonthsBtn").addEventListener("click", clearAllCalendarMonths);
+    document.getElementById("validateFillCategoriesBtn").addEventListener("click", () => {
+      validateFillCategoriesSection(true);
+    });
+
+    fillTypeCategoriesXml.addEventListener("input", () => {
+      fillCategoriesValidationMsg.textContent = "";
+    });
+
+    fruitXml.addEventListener("input", () => {
+      autoFruitSync.checked = false;
+    });
+
+    fillXml.addEventListener("input", () => {
+      autoFillSync.checked = false;
+    });
+
+    calendarXml.addEventListener("input", () => {
+      autoCalendarSync.checked = false;
+    });
+
+    [mapName, fruitRoot, fillRoot].forEach((element) => {
+      element.addEventListener("input", renderAll);
+    });
+
+    document.querySelectorAll(".tab-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach((item) => item.classList.remove("active"));
+        button.classList.add("active");
+
+        const tab = button.getAttribute("data-tab");
+        document.getElementById("tab-settings").classList.toggle("active", tab === "settings");
+        document.getElementById("tab-add-crop").classList.toggle("active", tab === "add-crop");
+        document.getElementById("tab-editor").classList.toggle("active", tab === "editor");
+        document.getElementById("tab-fill-categories").classList.toggle("active", tab === "fill-categories");
+        document.getElementById("tab-calendar").classList.toggle("active", tab === "calendar");
+        document.getElementById("tab-inputs").classList.toggle("active", tab === "inputs");
+        document.getElementById("tab-exports").classList.toggle("active", tab === "exports");
+      });
+    });
+
+    document.addEventListener("mouseup", () => {
+      isMouseDown = false;
+      paintValue = "";
+    });
+
+    state.crops = defaultCrops.map((crop) => ({ ...crop, calendar: [...crop.calendar] }));
+    fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(runtimeInputs.fillTemplateXml);
+    fullFruitXml.value = runtimeInputs.fullFruitTemplateXml;
+    environmentProfilesState.US = getBuiltinEnvironmentProfileXml("US");
+    environmentProfilesState.EU = getBuiltinEnvironmentProfileXml("EU");
+    environmentProfilesState.AS = getBuiltinEnvironmentProfileXml("AS");
+    loadActiveEnvironmentProfile("US");
+
+    updateInputSourceStatus();
+    renderAll();
+  </script>
+</body>
+</html>
