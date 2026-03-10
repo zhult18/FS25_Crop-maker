@@ -290,3 +290,84 @@ def generate_all_textures(crop: CropConfig, output_dir: str | Path) -> dict[str,
         "roughness": generate_roughness_texture(crop, output_dir),
         "icon": generate_icon(crop, output_dir),
     }
+
+
+# ---------------------------------------------------------------------------
+# In-memory preview helpers (used by the web UI)
+# ---------------------------------------------------------------------------
+
+
+def _img_to_b64(img: "Image.Image") -> str:
+    """Encode a PIL Image as a base-64 PNG string suitable for a data-URI."""
+    import base64
+    import io
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def generate_diffuse_preview_b64(crop: CropConfig, preview_size: int = 512) -> str:
+    """Return a base-64 encoded PNG of a small diffuse atlas preview.
+
+    This is fast because we generate at *preview_size* (default 512) instead
+    of the full :attr:`~CropConfig.textureSize`.  The result is a data-URI
+    string that can be set directly as an ``<img>`` ``src`` attribute.
+    """
+    # Temporarily override texture size for the preview
+    original_size = crop.textureSize
+    crop.textureSize = preview_size
+    try:
+        atlas = crop.atlasSize
+        cell = preview_size // atlas
+
+        img = Image.new("RGBA", (preview_size, preview_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        base_color = FOLIAGE_COLORS.get(crop.foliageType, (120, 140, 60))
+        total_cells = atlas * atlas
+        total_states = crop.numGrowthStates
+
+        for idx in range(total_cells):
+            row = idx // atlas
+            col = idx % atlas
+            px = col * cell
+            py = row * cell
+            state = min(idx, total_states)
+            _draw_foliage_cell(
+                draw, px, py, cell, cell,
+                state, total_states + 1,
+                base_color, crop.foliageType,
+            )
+    finally:
+        crop.textureSize = original_size
+
+    return _img_to_b64(img)
+
+
+def generate_icon_preview_b64(crop: CropConfig) -> str:
+    """Return a base-64 encoded PNG of the crop icon (128×128)."""
+    img = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    base_color = FOLIAGE_COLORS.get(crop.foliageType, (120, 140, 60))
+    draw.ellipse([4, 4, 124, 124], fill=(*base_color, 220), outline=(50, 50, 50, 255), width=3)
+
+    cx, size = 64, 128
+    stem_top = size // 6
+    stem_bot = size * 5 // 6
+    draw.line([(cx, stem_bot), (cx, stem_top + size // 8)], fill=(80, 80, 80, 255), width=4)
+    draw.ellipse([cx - size // 6, stem_top - size // 8,
+                  cx + size // 6, stem_top + size // 4],
+                 fill=(50, 50, 50, 255))
+
+    font = _get_font(max(10, size // 10))
+    label = crop.name[:8]
+    try:
+        bbox = draw.textbbox((0, 0), label, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except AttributeError:
+        tw, th = draw.textsize(label, font=font)  # type: ignore[attr-defined]
+    draw.text(((size - tw) // 2, stem_bot - th - 4), label, fill=(255, 255, 255, 230), font=font)
+
+    return _img_to_b64(img)

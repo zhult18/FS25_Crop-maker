@@ -1,0 +1,55 @@
+{
+  "name": "wheat",
+  "title": "Wheat",
+  "preset": "grain",
+  "windParameters": "wheat",
+  "maxCurvingAngle": "20",
+  "maxCurvingFrequency": "0.14",
+  "windRotation": "0.05",
+  "densityBitmask": "15",
+  "numGrowthStates": 8,
+  "firstFruitStateIndex": 4,
+  "minHarvestingGrowthState": 7,
+  "maxHarvestingGrowthState": 8,
+  "atlasSize": 4,
+  "textureSize": 2048,
+  "swathWidth": 3,
+  "harvestFraction": "CHAFF",
+  "foliageType": "grain",
+  "calendar": [
+    {
+      "zone": "temperate",
+      "planting_months": [
+        3,
+        4
+      ],
+      "growing_months": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "harvesting_months": [
+        7,
+        8
+      ]
+    },
+    {
+      "zone": "continental",
+      "planting_months": [
+        4,
+        5
+      ],
+      "growing_months": [
+        5,
+        6,
+        7,
+        8
+      ],
+      "harvesting_months": [
+        8,
+        9
+      ]
+    }
+  ]
+}
