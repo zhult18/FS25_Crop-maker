@@ -66,6 +66,7 @@
     }
 
     .span-4 { grid-column: span 4; }
+    .span-6 { grid-column: span 6; }
     .span-8 { grid-column: span 8; }
     .span-12 { grid-column: span 12; }
 
@@ -185,8 +186,77 @@
       margin: 0;
     }
 
+    .fill-category-header {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .fill-category-title {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .fill-token-box {
+      background: #0f172a;
+      border: 1px solid #475569;
+      border-radius: 8px;
+      padding: 8px;
+      min-height: 320px;
+      max-height: 280px;
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 6px;
+      align-content: start;
+    }
+
+    .fill-token-field {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      margin-bottom: 0;
+    }
+
+    .fill-token-field .fill-token-box {
+      flex: 1;
+      max-height: none;
+    }
+
+    .fill-token-box.drop-target {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
+    }
+
+    .fill-token-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 12px;
+      border: 1px solid #475569;
+      border-radius: 999px;
+      padding: 4px 10px;
+      background: #1e293b;
+      cursor: pointer;
+      user-select: none;
+      width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .fill-token-icon {
+      width: 18px;
+      text-align: center;
+      flex: 0 0 18px;
+    }
+
     @media (max-width: 980px) {
-      .span-4, .span-8, .span-12 {
+      .span-4, .span-6, .span-8, .span-12 {
         grid-column: span 12;
       }
     }
@@ -447,12 +517,13 @@
       <div class="grid">
         <section class="panel span-12">
           <h2>Edit fillTypeCategories Section</h2>
-          <p class="muted">Edit the full <code>&lt;fillTypeCategories&gt;...&lt;/fillTypeCategories&gt;</code> block used in maps_fillTypes.xml generation.</p>
+          <p class="muted">Each <code>&lt;fillTypeCategory name="..."&gt;</code> becomes its own editable section below.</p>
           <div class="btn-row" style="margin-bottom: 10px;">
             <button id="validateFillCategoriesBtn" class="secondary">Validate Section</button>
             <p id="fillCategoriesValidationMsg" class="muted" style="margin:0;"></p>
           </div>
-          <textarea id="fillTypeCategoriesXml" spellcheck="false"></textarea>
+          <div id="fillTypeCategoriesEditor" class="grid"></div>
+          <textarea id="fillTypeCategoriesXml" spellcheck="false" style="display:none;"></textarea>
         </section>
       </div>
     </section>
@@ -527,6 +598,7 @@
     const fruitInputStatus = document.getElementById("fruitInputStatus");
     const calendarInputStatus = document.getElementById("calendarInputStatus");
     const environmentInputStatus = document.getElementById("environmentInputStatus");
+    const fillTypeCategoriesEditor = document.getElementById("fillTypeCategoriesEditor");
     const fillTypeCategoriesXml = document.getElementById("fillTypeCategoriesXml");
     const fillCategoriesValidationMsg = document.getElementById("fillCategoriesValidationMsg");
 
@@ -595,7 +667,366 @@
       return new XMLSerializer().serializeToString(node);
     }
 
+    function parseFillTypeCategoriesItems(sectionText) {
+      const parser = new DOMParser();
+      const wrapped = parser.parseFromString(`<root>${String(sectionText || "")}</root>`, "application/xml");
+      if (wrapped.querySelector("parsererror")) {
+        return { items: [], isValid: false };
+      }
+
+      const node = wrapped.documentElement.firstElementChild;
+      if (!node || node.tagName !== "fillTypeCategories") {
+        return { items: [], isValid: false };
+      }
+
+      const items = Array.from(node.children)
+        .filter((child) => child.tagName === "fillTypeCategory")
+        .map((child) => ({
+          name: String(child.getAttribute("name") || ""),
+          values: String(child.textContent || "").trim()
+        }));
+      return { items, isValid: true };
+    }
+
+    function escapeXmlText(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function getCategoryTypeIcon(categoryName) {
+      const key = String(categoryName || "").toUpperCase();
+      const categoryIcons = {
+        BULK: "📦",
+        LIQUID: "💧",
+        PIECE: "🧱",
+        WINDROW: "🌿",
+        COMBINE: "🚜",
+        SPRAYER: "🧪",
+        SPREADER: "🪣",
+        PRODUCT: "🏭",
+        VEGETABLES: "🥕",
+        ROOT_CROPS: "🥔",
+        ANIMAL: "🐄",
+        HORSE: "🐎"
+      };
+      return categoryIcons[key] || "🎮";
+    }
+
+    function getFillTypeIcon(fillTypeName) {
+      const key = String(fillTypeName || "").toUpperCase();
+      const knownIcons = {
+        WHEAT: "🌾",
+        BARLEY: "🌾",
+        OAT: "🌾",
+        SORGHUM: "🌾",
+        SUNFLOWER: "🌻",
+        SOYBEAN: "🫘",
+        MAIZE: "🌽",
+        POTATO: "🥔",
+        SUGARBEET: "🫚",
+        BEETROOT: "🫚",
+        CARROT: "🥕",
+        PARSNIP: "🥕",
+        RICE: "🍚",
+        RICELONGGRAIN: "🍚",
+        GREENBEAN: "🫛",
+        PEA: "🫛",
+        SPINACH: "🥬",
+        OLIVE: "🫒",
+        GRAPE: "🍇",
+        COTTON: "🧵",
+        WATER: "💧",
+        DIESEL: "⛽",
+        FERTILIZER: "🧪",
+        LIME: "🪨",
+        MANURE: "💩",
+        WOODCHIPS: "🪵",
+        SILAGE: "🌿",
+        STRAW: "🌾"
+      };
+      if (knownIcons[key]) {
+        return knownIcons[key];
+      }
+
+      const matchingCrop = state && Array.isArray(state.crops)
+        ? state.crops.find((crop) => String(crop.name || crop.fillType || "").toUpperCase() === key || String(crop.fillType || "").toUpperCase() === key)
+        : null;
+      if (matchingCrop) {
+        return getCropIcon(matchingCrop);
+      }
+
+      const initials = key.replace(/[^A-Z0-9]/g, "").slice(0, 2);
+      return initials || "🌱";
+    }
+
+    function parseFillTypeTokenList(valueText) {
+      const seen = new Set();
+      const tokens = [];
+      String(valueText || "").trim().split(/\s+/).filter(Boolean).forEach((token) => {
+        const normalized = String(token).toUpperCase();
+        if (seen.has(normalized)) {
+          return;
+        }
+        seen.add(normalized);
+        tokens.push(normalized);
+      });
+      return tokens;
+    }
+
+    function getAllKnownFillTypeTokens(items) {
+      const all = [];
+      const seen = new Set();
+      const addToken = (value) => {
+        const token = String(value || "").trim().toUpperCase();
+        if (!token || seen.has(token)) {
+          return;
+        }
+        seen.add(token);
+        all.push(token);
+      };
+
+      const parser = new DOMParser();
+      const templateDoc = parser.parseFromString(String(runtimeInputs.fillTemplateXml || ""), "application/xml");
+      if (!templateDoc.querySelector("parsererror")) {
+        templateDoc.querySelectorAll("fillTypes > fillType").forEach((node) => {
+          addToken(node.getAttribute("name") || "");
+        });
+      }
+
+      if (Array.isArray(state.crops)) {
+        state.crops.forEach((crop) => {
+          addToken(crop.fillType || crop.name || "");
+        });
+      }
+
+      items.forEach((item) => {
+        parseFillTypeTokenList(item.values).forEach(addToken);
+      });
+
+      return all;
+    }
+
+    function getSectionSelectedTokens(section) {
+      const raw = section.getAttribute("data-fill-category-selected") || "";
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.map((token) => String(token || "").toUpperCase()).filter(Boolean) : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function setSectionSelectedTokens(section, tokens) {
+      const unique = [];
+      const seen = new Set();
+      tokens.forEach((token) => {
+        const normalized = String(token || "").toUpperCase();
+        if (!normalized || seen.has(normalized)) {
+          return;
+        }
+        seen.add(normalized);
+        unique.push(normalized);
+      });
+      section.setAttribute("data-fill-category-selected", JSON.stringify(unique));
+    }
+
+    function renderTokenChip(section, token, inSelectedBox, knownTokens) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "fill-token-chip";
+      chip.draggable = true;
+      chip.setAttribute("data-token", token);
+      chip.setAttribute("data-source", inSelectedBox ? "selected" : "available");
+
+      const icon = document.createElement("span");
+      icon.className = "fill-token-icon";
+      const isKnown = knownTokens.includes(token);
+      icon.textContent = isKnown ? getFillTypeIcon(token) : (token.slice(0, 2) || "🌱");
+
+      const text = document.createElement("span");
+      text.textContent = token;
+
+      chip.appendChild(icon);
+      chip.appendChild(text);
+
+      chip.addEventListener("click", () => {
+        const selected = getSectionSelectedTokens(section);
+        if (inSelectedBox) {
+          setSectionSelectedTokens(section, selected.filter((value) => value !== token));
+        } else {
+          setSectionSelectedTokens(section, [...selected, token]);
+        }
+        renderFillTypeCategorySelector(section, knownTokens);
+        syncFillTypeCategoriesXmlFromEditor();
+        fillCategoriesValidationMsg.textContent = "";
+      });
+
+      chip.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", JSON.stringify({ token, source: inSelectedBox ? "selected" : "available" }));
+      });
+
+      return chip;
+    }
+
+    function wireTokenDropZone(section, zone, target, knownTokens) {
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        zone.classList.add("drop-target");
+      });
+      zone.addEventListener("dragleave", () => {
+        zone.classList.remove("drop-target");
+      });
+      zone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        zone.classList.remove("drop-target");
+        let payload = null;
+        try {
+          payload = JSON.parse(event.dataTransfer.getData("text/plain"));
+        } catch (error) {
+          payload = null;
+        }
+        if (!payload || !payload.token || payload.source === target) {
+          return;
+        }
+        const selected = getSectionSelectedTokens(section);
+        if (target === "selected") {
+          setSectionSelectedTokens(section, [...selected, payload.token]);
+        } else {
+          setSectionSelectedTokens(section, selected.filter((value) => value !== payload.token));
+        }
+        renderFillTypeCategorySelector(section, knownTokens);
+        syncFillTypeCategoriesXmlFromEditor();
+        fillCategoriesValidationMsg.textContent = "";
+      });
+    }
+
+    function renderFillTypeCategorySelector(section, knownTokens) {
+      const availableBox = section.querySelector("[data-fill-category-available]");
+      const selectedBox = section.querySelector("[data-fill-category-selected-box]");
+      if (!availableBox || !selectedBox) {
+        return;
+      }
+
+      const selected = getSectionSelectedTokens(section);
+      const selectedSet = new Set(selected);
+      const available = knownTokens.filter((token) => !selectedSet.has(token));
+
+      availableBox.innerHTML = "";
+      selectedBox.innerHTML = "";
+
+      available.forEach((token) => {
+        availableBox.appendChild(renderTokenChip(section, token, false, knownTokens));
+      });
+      selected.forEach((token) => {
+        selectedBox.appendChild(renderTokenChip(section, token, true, knownTokens));
+      });
+    }
+
+    function buildFillTypeCategoriesXmlFromEditor() {
+      const rows = [];
+      const sections = fillTypeCategoriesEditor.querySelectorAll("[data-fill-category-section]");
+      sections.forEach((section) => {
+        const name = String(section.getAttribute("data-fill-category-name") || "").trim();
+        const values = getSectionSelectedTokens(section).join(" ");
+        if (!name) {
+          return;
+        }
+        rows.push(`  <fillTypeCategory name="${escapeAttr(name)}">${escapeXmlText(values)}</fillTypeCategory>`);
+      });
+      return ["<fillTypeCategories>", ...rows, "</fillTypeCategories>"].join("\n");
+    }
+
+    function syncFillTypeCategoriesXmlFromEditor() {
+      fillTypeCategoriesXml.value = buildFillTypeCategoriesXmlFromEditor();
+    }
+
+    function setFillTypeCategoriesSection(sectionText, clearValidationMessage = true) {
+      fillTypeCategoriesXml.value = String(sectionText || "").trim();
+      renderFillTypeCategoriesEditor();
+      syncFillTypeCategoriesXmlFromEditor();
+      if (clearValidationMessage) {
+        fillCategoriesValidationMsg.textContent = "";
+      }
+    }
+
+    function renderFillTypeCategoriesEditor() {
+      const parsed = parseFillTypeCategoriesItems(fillTypeCategoriesXml.value);
+      const items = parsed.items;
+      fillTypeCategoriesEditor.innerHTML = "";
+
+      if (!parsed.isValid) {
+        const invalid = document.createElement("p");
+        invalid.className = "muted";
+        invalid.textContent = "Invalid fillTypeCategories XML. Reset or upload a valid maps_fillTypes.xml.";
+        fillTypeCategoriesEditor.appendChild(invalid);
+        return;
+      }
+
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No fillTypeCategory entries found.";
+        fillTypeCategoriesEditor.appendChild(empty);
+        return;
+      }
+
+      const knownTokens = getAllKnownFillTypeTokens(items);
+
+      items.forEach((item) => {
+        const wrapper = document.createElement("section");
+        wrapper.className = "panel span-12";
+        wrapper.setAttribute("data-fill-category-section", "true");
+        wrapper.setAttribute("data-fill-category-name", item.name);
+        setSectionSelectedTokens(wrapper, parseFillTypeTokenList(item.values));
+
+        const header = document.createElement("div");
+        header.className = "fill-category-header";
+        const title = document.createElement("span");
+        title.className = "fill-category-title";
+        title.textContent = `${getCategoryTypeIcon(item.name)} ${item.name || "UNNAMED"}`;
+        header.appendChild(title);
+        wrapper.appendChild(header);
+
+        const grid = document.createElement("div");
+        grid.className = "grid";
+
+        const availableField = document.createElement("div");
+        availableField.className = "field span-6 fill-token-field";
+        const availableLabel = document.createElement("label");
+        availableLabel.textContent = "Available";
+        const availableBox = document.createElement("div");
+        availableBox.className = "fill-token-box";
+        availableBox.setAttribute("data-fill-category-available", "true");
+        availableField.appendChild(availableLabel);
+        availableField.appendChild(availableBox);
+
+        const selectedField = document.createElement("div");
+        selectedField.className = "field span-6 fill-token-field";
+        const selectedLabel = document.createElement("label");
+        selectedLabel.textContent = "In Category";
+        const selectedBox = document.createElement("div");
+        selectedBox.className = "fill-token-box";
+        selectedBox.setAttribute("data-fill-category-selected-box", "true");
+        selectedField.appendChild(selectedLabel);
+        selectedField.appendChild(selectedBox);
+
+        grid.appendChild(availableField);
+        grid.appendChild(selectedField);
+        wrapper.appendChild(grid);
+        fillTypeCategoriesEditor.appendChild(wrapper);
+
+        renderFillTypeCategorySelector(wrapper, knownTokens);
+        wireTokenDropZone(wrapper, availableBox, "available", knownTokens);
+        wireTokenDropZone(wrapper, selectedBox, "selected", knownTokens);
+      });
+
+      syncFillTypeCategoriesXmlFromEditor();
+    }
+
     function importEditedFillTypeCategoriesNode(xmlDoc) {
+      syncFillTypeCategoriesXmlFromEditor();
       const sectionText = String(fillTypeCategoriesXml.value || "").trim();
       if (!sectionText) {
         return null;
@@ -616,6 +1047,7 @@
     }
 
     function validateFillCategoriesSection(showSuccess = false) {
+      syncFillTypeCategoriesXmlFromEditor();
       const sectionText = String(fillTypeCategoriesXml.value || "").trim();
       if (!sectionText) {
         fillCategoriesValidationMsg.textContent = "Section is empty."
@@ -1349,7 +1781,7 @@
     inputFillTypesFile.addEventListener("change", () => {
       readUploadedText(inputFillTypesFile, (text) => {
         runtimeInputs.fillTemplateXml = text;
-        fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(text);
+        setFillTypeCategoriesSection(extractFillTypeCategoriesSection(text));
         inputSourceState.fill = "uploaded";
         updateInputSourceStatus();
         autoFillSync.checked = true;
@@ -1387,7 +1819,7 @@
 
     document.getElementById("resetFillInputBtn").addEventListener("click", () => {
       runtimeInputs.fillTemplateXml = defaultFillTemplate;
-      fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(defaultFillTemplate);
+      setFillTypeCategoriesSection(extractFillTypeCategoriesSection(defaultFillTemplate));
       inputSourceState.fill = "default";
       updateInputSourceStatus();
       if (inputFillTypesFile) {
@@ -1433,10 +1865,6 @@
       validateFillCategoriesSection(true);
     });
 
-    fillTypeCategoriesXml.addEventListener("input", () => {
-      fillCategoriesValidationMsg.textContent = "";
-    });
-
     fruitXml.addEventListener("input", () => {
       autoFruitSync.checked = false;
     });
@@ -1475,7 +1903,7 @@
     });
 
     state.crops = defaultCrops.map((crop) => ({ ...crop, calendar: [...crop.calendar] }));
-    fillTypeCategoriesXml.value = extractFillTypeCategoriesSection(runtimeInputs.fillTemplateXml);
+    setFillTypeCategoriesSection(extractFillTypeCategoriesSection(runtimeInputs.fillTemplateXml), false);
     fullFruitXml.value = runtimeInputs.fullFruitTemplateXml;
     environmentProfilesState.US = getBuiltinEnvironmentProfileXml("US");
     environmentProfilesState.EU = getBuiltinEnvironmentProfileXml("EU");
