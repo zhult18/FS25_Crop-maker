@@ -1,0 +1,56 @@
+{
+  "name": "corn",
+  "title": "Corn",
+  "preset": "row_crop",
+  "windParameters": "corn",
+  "maxCurvingAngle": "10",
+  "maxCurvingFrequency": "0.08",
+  "windRotation": "0.02",
+  "densityBitmask": "15",
+  "numGrowthStates": 8,
+  "firstFruitStateIndex": 4,
+  "minHarvestingGrowthState": 7,
+  "maxHarvestingGrowthState": 8,
+  "atlasSize": 4,
+  "textureSize": 2048,
+  "swathWidth": 6,
+  "harvestFraction": "CHAFF",
+  "foliageType": "row_crop",
+  "calendar": [
+    {
+      "zone": "temperate",
+      "planting_months": [
+        5,
+        6
+      ],
+      "growing_months": [
+        6,
+        7,
+        8,
+        9
+      ],
+      "harvesting_months": [
+        9,
+        10
+      ]
+    },
+    {
+      "zone": "tropical",
+      "planting_months": [
+        3,
+        4
+      ],
+      "growing_months": [
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "harvesting_months": [
+        8,
+        9
+      ]
+    }
+  ]
+}
