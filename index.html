@@ -260,6 +260,38 @@
         grid-column: span 12;
       }
     }
+
+    input[type="range"] {
+      padding: 2px 0;
+      border: none;
+      background: transparent;
+      accent-color: #2563eb;
+      cursor: pointer;
+    }
+
+    input[type="color"] {
+      padding: 2px;
+      height: 42px;
+      cursor: pointer;
+    }
+
+    .tex-preview-bg {
+      background: repeating-conic-gradient(#334155 0% 25%, #1e293b 0% 50%) 0 0 / 20px 20px;
+      border-radius: 10px;
+      padding: 8px;
+      display: flex;
+      justify-content: center;
+      overflow: auto;
+    }
+
+    #textureCanvas {
+      display: block;
+      max-width: 480px;
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      image-rendering: pixelated;
+    }
   </style>
 </head>
 <body>
@@ -275,6 +307,7 @@
       <button class="tab-btn" data-tab="fill-categories">Fill Categories</button>
       <button class="tab-btn" data-tab="calendar">Calendar</button>
       <button class="tab-btn" data-tab="exports">Exports</button>
+      <button class="tab-btn" data-tab="textures">Textures</button>
     </div>
 
     <section id="tab-settings" class="tab-content">
@@ -524,6 +557,75 @@
           </div>
           <div id="fillTypeCategoriesEditor" class="grid"></div>
           <textarea id="fillTypeCategoriesXml" spellcheck="false" style="display:none;"></textarea>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-textures" class="tab-content">
+      <div class="grid">
+        <section class="panel span-4">
+          <h2>Texture Settings</h2>
+          <div class="field">
+            <label for="texCrop">Crop</label>
+            <select id="texCrop"></select>
+          </div>
+          <div class="field">
+            <label for="texStyle">Plant Style</label>
+            <select id="texStyle">
+              <option value="auto">Auto-detect from crop name</option>
+              <option value="grain">Grain (Wheat / Barley / Oat / Rye)</option>
+              <option value="broadleaf">Broadleaf (Maize / Sunflower / Sorghum)</option>
+              <option value="root">Root Crop Tops (Potato / Beet / Carrot)</option>
+              <option value="grass">Grass / Fine Blades</option>
+              <option value="legume">Legume / Bushy (Soy / Bean / Pea)</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="texResolution">Resolution</label>
+            <select id="texResolution">
+              <option value="256">256 × 256</option>
+              <option value="512" selected>512 × 512</option>
+              <option value="1024">1024 × 1024</option>
+              <option value="2048">2048 × 2048</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Growth Stage: <span id="texStageLabel">4 / 8</span></label>
+            <input id="texStage" type="range" min="1" max="8" value="4" />
+          </div>
+          <div class="field">
+            <label for="texBaseColor">Base / Stem Color</label>
+            <input id="texBaseColor" type="color" value="#5a8c3a" />
+          </div>
+          <div class="field">
+            <label for="texTipColor">Tip / Leaf Color</label>
+            <input id="texTipColor" type="color" value="#8abe6a" />
+          </div>
+          <div class="field">
+            <label for="texBg">Background</label>
+            <select id="texBg">
+              <option value="transparent">Transparent (Alpha)</option>
+              <option value="#0f0a04">Dark Soil</option>
+              <option value="#1a1008">Brown Soil</option>
+              <option value="#0a1204">Dark Ground</option>
+            </select>
+          </div>
+          <div class="btn-row">
+            <button id="texGenerateBtn">Generate</button>
+            <button id="texAutoBtn" class="secondary">Auto Colors</button>
+          </div>
+        </section>
+
+        <section class="panel span-8">
+          <h2>Texture Preview</h2>
+          <p class="muted">Generates a PNG diffuse texture at the selected resolution. Convert to DDS for use in FS25 mods.</p>
+          <div class="btn-row" style="margin-bottom: 12px;">
+            <button id="texDownloadBtn">Download PNG</button>
+            <button id="texDownloadAllBtn" class="secondary">Download All Stages (ZIP)</button>
+          </div>
+          <div class="tex-preview-bg">
+            <canvas id="textureCanvas" width="512" height="512"></canvas>
+          </div>
         </section>
       </div>
     </section>
@@ -1560,6 +1662,7 @@
       renderTable();
       renderCalendar();
       updateGeneratedXml(false);
+      renderTextureCropSelect();
     }
 
     function addCrop() {
@@ -1645,7 +1748,7 @@
 
       files.forEach((file) => {
         const nameBytes = encoder.encode(file.name);
-        const dataBytes = encoder.encode(file.content || "");
+        const dataBytes = (file.bytes instanceof Uint8Array) ? file.bytes : encoder.encode(file.content || "");
         const crc32 = getCrc32(dataBytes);
 
         const localHeader = new Uint8Array(30 + nameBytes.length);
@@ -1711,6 +1814,496 @@
       link.click();
       URL.revokeObjectURL(url);
     }
+
+    // ============================================================
+    // CROP TEXTURE GENERATION
+    // ============================================================
+
+    function makeSeedRng(seed) {
+      let s = (seed ^ 0xDEADBEEF) >>> 0;
+      return function () {
+        s += 0x6D2B79F5;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function hexToRgbObj(hex) {
+      const h = hex.replace("#", "");
+      return {
+        r: parseInt(h.slice(0, 2), 16),
+        g: parseInt(h.slice(2, 4), 16),
+        b: parseInt(h.slice(4, 6), 16)
+      };
+    }
+
+    function lerpHex(c1, c2, t) {
+      t = Math.max(0, Math.min(1, t));
+      const a = hexToRgbObj(c1);
+      const b = hexToRgbObj(c2);
+      const r = Math.round(a.r + (b.r - a.r) * t);
+      const g = Math.round(a.g + (b.g - a.g) * t);
+      const blue = Math.round(a.b + (b.b - a.b) * t);
+      return "#" + [r, g, blue].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("");
+    }
+
+    function getAutoStyleForCrop(cropName) {
+      const k = String(cropName || "").toUpperCase();
+      if (["MAIZE", "CORN", "SUNFLOWER", "SORGHUM", "POPLAR", "SUGARCANE"].includes(k)) return "broadleaf";
+      if (["POTATO", "SUGARBEET", "BEETROOT", "CARROT", "PARSNIP"].includes(k)) return "root";
+      if (["GRASS", "OILSEEDRADISH"].includes(k)) return "grass";
+      if (["SOYBEAN", "PEA", "GREENBEAN", "SPINACH", "COTTON", "GRAPE", "OLIVE"].includes(k)) return "legume";
+      return "grain";
+    }
+
+    function getAutoCropColors(cropName, style, growthFactor) {
+      const k = String(cropName || "").toUpperCase();
+      let baseColor = "#5a8c3a";
+      let tipColor = "#8abe6a";
+
+      if (style === "grain") {
+        baseColor = lerpHex("#5a8c3a", "#b89030", growthFactor);
+        tipColor = lerpHex("#8abe6a", "#e8c840", growthFactor);
+        if (k === "CANOLA") {
+          tipColor = growthFactor > 0.5
+            ? lerpHex("#8abe6a", "#f5e234", (growthFactor - 0.5) * 2)
+            : lerpHex("#5a9c5a", "#8abe6a", growthFactor * 2);
+        } else if (k === "RICE" || k === "RICELONGGRAIN") {
+          baseColor = lerpHex("#6a9c5a", "#a0c468", growthFactor);
+          tipColor = lerpHex("#9aca8a", "#c8e890", growthFactor);
+        }
+      } else if (style === "broadleaf") {
+        if (k === "SUNFLOWER") {
+          baseColor = "#3a7c3a";
+          tipColor = growthFactor > 0.7
+            ? lerpHex("#5a9c5a", "#f0d040", (growthFactor - 0.7) / 0.3)
+            : "#5a9c5a";
+        } else if (k === "SUGARCANE") {
+          baseColor = lerpHex("#4a9c3a", "#7ab848", growthFactor);
+          tipColor = lerpHex("#7aca6a", "#a0d870", growthFactor);
+        } else {
+          baseColor = "#3a7c3a";
+          tipColor = "#6ab06a";
+        }
+      } else if (style === "root") {
+        baseColor = "#4a8a3a";
+        tipColor = "#7aba6a";
+        if (k === "BEETROOT") {
+          baseColor = "#5a6a3a";
+          tipColor = "#8aaa6a";
+        }
+      } else if (style === "grass") {
+        baseColor = lerpHex("#4a9a3a", "#6aaa5a", growthFactor);
+        tipColor = lerpHex("#8aca6a", "#a0ea80", growthFactor);
+      } else if (style === "legume") {
+        if (k === "COTTON") {
+          baseColor = "#3d6b3d";
+          tipColor = growthFactor > 0.7
+            ? lerpHex("#6d9b6d", "#f0f0f0", (growthFactor - 0.7) / 0.3)
+            : "#6d9b6d";
+        } else if (k === "GRAPE" || k === "OLIVE") {
+          baseColor = "#2a5a2a";
+          tipColor = "#5a8a5a";
+        } else {
+          baseColor = "#3a7a3a";
+          tipColor = "#6aaa6a";
+        }
+      }
+      return { base: baseColor, tip: tipColor };
+    }
+
+    function drawTexBlade(ctx, x, y, length, width, angle, colors, rng, style) {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+
+      const grad = ctx.createLinearGradient(0, 0, 0, -length);
+      grad.addColorStop(0, colors.base);
+      grad.addColorStop(0.65, colors.tip);
+      grad.addColorStop(1, lerpHex(colors.tip, "#ffffff", 0.2));
+      ctx.fillStyle = grad;
+
+      ctx.beginPath();
+      if (style === "grass") {
+        const cv = (rng() - 0.5) * length * 0.35;
+        ctx.moveTo(-width / 2, 0);
+        ctx.quadraticCurveTo(-width / 4 + cv * 0.4, -length * 0.5, cv * 0.8, -length);
+        ctx.quadraticCurveTo(width / 4 + cv * 0.4, -length * 0.5, width / 2, 0);
+      } else if (style === "grain") {
+        const cv = (rng() - 0.5) * length * 0.25;
+        ctx.moveTo(-width / 2, 0);
+        ctx.quadraticCurveTo(-width / 3 + cv * 0.3, -length * 0.55, cv, -length);
+        ctx.quadraticCurveTo(width / 3 + cv * 0.3, -length * 0.55, width / 2, 0);
+      } else if (style === "broadleaf") {
+        const cv = (rng() - 0.5) * length * 0.15;
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(-width * 0.75 + cv, -length * 0.45, cv * 0.5, -length);
+        ctx.quadraticCurveTo(width * 0.75 + cv, -length * 0.45, 0, 0);
+      } else if (style === "root") {
+        ctx.moveTo(-width / 3, 0);
+        ctx.quadraticCurveTo(-width * 0.55, -length * 0.5, 0, -length);
+        ctx.quadraticCurveTo(width * 0.55, -length * 0.5, width / 3, 0);
+      } else {
+        ctx.moveTo(-width * 0.1, 0);
+        ctx.bezierCurveTo(-width * 0.65, -length * 0.3, -width * 0.45, -length * 0.85, 0, -length);
+        ctx.bezierCurveTo(width * 0.45, -length * 0.85, width * 0.65, -length * 0.3, width * 0.1, 0);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = Math.max(0.4, width * 0.1);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(0, -length * 0.8);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawGrainEar(ctx, x, y, size, color, rng) {
+      const earH = size * 1.5;
+      const earW = size * 0.22;
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.ellipse(0, -earH / 2, earW, earH / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const awnCount = 5 + Math.floor(rng() * 3);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(0.4, earW * 0.18);
+      for (let i = 0; i < awnCount; i++) {
+        const ty = -(i / (awnCount - 1)) * earH;
+        const side = i % 2 === 0 ? 1 : -1;
+        const awnLen = earW * (1.8 + rng() * 0.8);
+        ctx.beginPath();
+        ctx.moveTo(earW * 0.4 * side, ty);
+        ctx.lineTo(awnLen * side, ty - awnLen * 0.28);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawTexPlant(ctx, cx, cy, opts) {
+      const { style, growthFactor, bladeLength, colors, rng, hasGrainHead, headColor } = opts;
+      const baseAlpha = 0.65 + rng() * 0.35;
+      ctx.globalAlpha = baseAlpha;
+
+      let numBlades, spreadR, bladeW;
+      if (style === "grass") {
+        numBlades = 3 + Math.floor(growthFactor * 6) + Math.floor(rng() * 3);
+        spreadR = bladeLength * 0.25;
+        bladeW = bladeLength * 0.07;
+      } else if (style === "grain") {
+        numBlades = 2 + Math.floor(growthFactor * 3) + Math.floor(rng() * 2);
+        spreadR = bladeLength * 0.22;
+        bladeW = bladeLength * 0.14;
+      } else if (style === "broadleaf") {
+        numBlades = 2 + Math.floor(growthFactor * 3) + Math.floor(rng() * 2);
+        spreadR = bladeLength * 0.45;
+        bladeW = bladeLength * 0.5;
+      } else if (style === "root") {
+        numBlades = 4 + Math.floor(growthFactor * 5) + Math.floor(rng() * 3);
+        spreadR = bladeLength * 0.55;
+        bladeW = bladeLength * 0.12;
+      } else {
+        numBlades = 3 + Math.floor(growthFactor * 4) + Math.floor(rng() * 2);
+        spreadR = bladeLength * 0.38;
+        bladeW = bladeLength * 0.25;
+      }
+
+      for (let b = 0; b < numBlades; b++) {
+        const angle = (b / numBlades) * Math.PI * 2 + rng() * 0.9;
+        const r = rng() * spreadR;
+        const bx = cx + Math.cos(angle) * r;
+        const by = cy + Math.sin(angle) * r;
+        const bladeAngle = angle + Math.PI + (rng() - 0.5) * 0.5;
+        const bladeLen = bladeLength * (0.65 + rng() * 0.6);
+        const bladeWidth = bladeW * (0.75 + rng() * 0.5);
+        drawTexBlade(ctx, bx, by, bladeLen, bladeWidth, bladeAngle, colors, rng, style);
+      }
+
+      if (hasGrainHead && growthFactor > 0.55) {
+        const headFade = Math.min(1, (growthFactor - 0.55) / 0.35);
+        ctx.globalAlpha = baseAlpha * headFade;
+        drawGrainEar(ctx, cx, cy, bladeLength * 0.22, headColor, rng);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    const GRAIN_CROP_NAMES = new Set(["WHEAT", "BARLEY", "OAT", "RYE", "SORGHUM", "RICE", "RICELONGGRAIN"]);
+
+    function generateCropTexture(canvas, options) {
+      const {
+        cropName = "DEFAULT",
+        style = "grain",
+        growthStage = 4,
+        maxGrowthStages = 8,
+        resolution = 512,
+        baseColor = null,
+        tipColor = null,
+        backgroundColor = "transparent"
+      } = options;
+
+      canvas.width = resolution;
+      canvas.height = resolution;
+      const ctx = canvas.getContext("2d");
+      const W = resolution;
+      const H = resolution;
+
+      ctx.clearRect(0, 0, W, H);
+      if (backgroundColor && backgroundColor !== "transparent") {
+        ctx.fillStyle = backgroundColor;
+        ctx.fillRect(0, 0, W, H);
+      }
+
+      const growthFactor = Math.max(0.05, Math.min(1, (growthStage - 1) / Math.max(1, maxGrowthStages - 1)));
+      const autoColors = getAutoCropColors(cropName, style, growthFactor);
+      const colors = {
+        base: baseColor || autoColors.base,
+        tip: tipColor || autoColors.tip
+      };
+
+      const hasGrainHead = style === "grain" && GRAIN_CROP_NAMES.has(String(cropName).toUpperCase());
+      const headColor = lerpHex(colors.tip, "#e0c030", 0.6);
+
+      const gridCount = 6 + Math.floor(growthFactor * 9);
+      const cellW = W / gridCount;
+      const cellH = H / gridCount;
+      const bladeLength = cellW * (0.35 + growthFactor * 0.85);
+
+      let rngSeed = 0x12345678;
+      for (let i = 0; i < cropName.length; i++) {
+        rngSeed = ((rngSeed * 31) + cropName.charCodeAt(i)) >>> 0;
+      }
+      const rng = makeSeedRng(rngSeed);
+
+      for (let gx = 0; gx < gridCount; gx++) {
+        for (let gy = 0; gy < gridCount; gy++) {
+          const baseX = (gx + 0.5) * cellW;
+          const baseY = (gy + 0.5) * cellH;
+          const cx = baseX + (rng() - 0.5) * cellW * 0.8;
+          const cy = baseY + (rng() - 0.5) * cellH * 0.8;
+          drawTexPlant(ctx, cx, cy, { style, growthFactor, bladeLength, colors, rng, hasGrainHead, headColor });
+        }
+      }
+    }
+
+    function renderTextureCropSelect() {
+      const sel = document.getElementById("texCrop");
+      if (!sel) {
+        return;
+      }
+      const current = sel.value;
+      sel.innerHTML = "";
+      state.crops.forEach((crop) => {
+        const opt = document.createElement("option");
+        opt.value = crop.name;
+        opt.textContent = `${getCropIcon(crop)} ${crop.title} (${crop.name})`;
+        if (crop.name === current) {
+          opt.selected = true;
+        }
+        sel.appendChild(opt);
+      });
+      updateTexStageMax();
+    }
+
+    function updateTexStageMax() {
+      const sel = document.getElementById("texCrop");
+      const stageInput = document.getElementById("texStage");
+      const stageLabel = document.getElementById("texStageLabel");
+      if (!sel || !stageInput) {
+        return;
+      }
+      const cropName = sel.value;
+      const crop = state.crops.find((c) => c.name === cropName);
+      const maxStages = crop ? Number(crop.growthStates) || 8 : 8;
+      stageInput.max = maxStages;
+      if (Number(stageInput.value) > maxStages) {
+        stageInput.value = maxStages;
+      }
+      if (stageLabel) {
+        stageLabel.textContent = `${stageInput.value} / ${maxStages}`;
+      }
+    }
+
+    function applyAutoTexColors() {
+      const sel = document.getElementById("texCrop");
+      const styleEl = document.getElementById("texStyle");
+      const baseEl = document.getElementById("texBaseColor");
+      const tipEl = document.getElementById("texTipColor");
+      const stageInput = document.getElementById("texStage");
+      if (!sel || !styleEl || !baseEl || !tipEl) {
+        return;
+      }
+      const cropName = sel.value;
+      const crop = state.crops.find((c) => c.name === cropName);
+      const maxStages = crop ? Number(crop.growthStates) || 8 : 8;
+      const stage = Number(stageInput ? stageInput.value : 4);
+      const growthFactor = Math.max(0.05, Math.min(1, (stage - 1) / Math.max(1, maxStages - 1)));
+      let style = styleEl.value;
+      if (style === "auto") {
+        style = getAutoStyleForCrop(cropName);
+      }
+      const colors = getAutoCropColors(cropName, style, growthFactor);
+      baseEl.value = colors.base;
+      tipEl.value = colors.tip;
+    }
+
+    function runTextureGeneration() {
+      const canvas = document.getElementById("textureCanvas");
+      const sel = document.getElementById("texCrop");
+      const styleEl = document.getElementById("texStyle");
+      const resEl = document.getElementById("texResolution");
+      const stageInput = document.getElementById("texStage");
+      const baseEl = document.getElementById("texBaseColor");
+      const tipEl = document.getElementById("texTipColor");
+      const bgEl = document.getElementById("texBg");
+      if (!canvas || !sel) {
+        return;
+      }
+      const cropName = sel.value || "DEFAULT";
+      const crop = state.crops.find((c) => c.name === cropName);
+      const maxGrowthStages = crop ? Number(crop.growthStates) || 8 : 8;
+      const resolution = Number(resEl ? resEl.value : 512) || 512;
+      const growthStage = Number(stageInput ? stageInput.value : 4);
+      let style = styleEl ? styleEl.value : "grain";
+      if (style === "auto") {
+        style = getAutoStyleForCrop(cropName);
+      }
+      generateCropTexture(canvas, {
+        cropName,
+        style,
+        growthStage,
+        maxGrowthStages,
+        resolution,
+        baseColor: baseEl && baseEl.value ? baseEl.value : null,
+        tipColor: tipEl && tipEl.value ? tipEl.value : null,
+        backgroundColor: bgEl ? bgEl.value : "transparent"
+      });
+      canvas.style.maxWidth = Math.min(480, resolution) + "px";
+    }
+
+    function downloadTexturePng() {
+      const canvas = document.getElementById("textureCanvas");
+      const sel = document.getElementById("texCrop");
+      const stageInput = document.getElementById("texStage");
+      if (!canvas || !sel) {
+        return;
+      }
+      const cropName = String(sel.value || "crop").toUpperCase();
+      const stage = stageInput ? stageInput.value : "1";
+      const name = `${cropName}_stage${stage}_diffuse.png`;
+      canvas.toBlob((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }, "image/png");
+    }
+
+    function downloadAllStagesZip() {
+      const sel = document.getElementById("texCrop");
+      const styleEl = document.getElementById("texStyle");
+      const resEl = document.getElementById("texResolution");
+      const baseEl = document.getElementById("texBaseColor");
+      const tipEl = document.getElementById("texTipColor");
+      const bgEl = document.getElementById("texBg");
+      if (!sel) {
+        return;
+      }
+      const cropName = sel.value || "DEFAULT";
+      const crop = state.crops.find((c) => c.name === cropName);
+      const maxGrowthStages = crop ? Number(crop.growthStates) || 8 : 8;
+      const resolution = Number(resEl ? resEl.value : 512) || 512;
+      let style = styleEl ? styleEl.value : "grain";
+      if (style === "auto") {
+        style = getAutoStyleForCrop(cropName);
+      }
+
+      const offscreen = document.createElement("canvas");
+      const pngFiles = [];
+      let stageIdx = 0;
+
+      function processNextStage() {
+        if (stageIdx >= maxGrowthStages) {
+          if (pngFiles.length > 0) {
+            downloadZip(`${String(cropName).toUpperCase()}_textures.zip`, pngFiles);
+          }
+          return;
+        }
+        const stage = stageIdx + 1;
+        generateCropTexture(offscreen, {
+          cropName,
+          style,
+          growthStage: stage,
+          maxGrowthStages,
+          resolution,
+          baseColor: baseEl && baseEl.value ? baseEl.value : null,
+          tipColor: tipEl && tipEl.value ? tipEl.value : null,
+          backgroundColor: bgEl ? bgEl.value : "transparent"
+        });
+        offscreen.toBlob((blob) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            pngFiles.push({
+              name: `${String(cropName).toUpperCase()}_stage${stage}_diffuse.png`,
+              bytes: new Uint8Array(reader.result)
+            });
+            stageIdx++;
+            processNextStage();
+          };
+          reader.readAsArrayBuffer(blob);
+        }, "image/png");
+      }
+
+      processNextStage();
+    }
+
+    document.getElementById("texGenerateBtn").addEventListener("click", runTextureGeneration);
+
+    document.getElementById("texAutoBtn").addEventListener("click", () => {
+      applyAutoTexColors();
+      runTextureGeneration();
+    });
+
+    document.getElementById("texDownloadBtn").addEventListener("click", downloadTexturePng);
+
+    document.getElementById("texDownloadAllBtn").addEventListener("click", downloadAllStagesZip);
+
+    document.getElementById("texCrop").addEventListener("change", () => {
+      updateTexStageMax();
+      applyAutoTexColors();
+      runTextureGeneration();
+    });
+
+    document.getElementById("texStyle").addEventListener("change", () => {
+      applyAutoTexColors();
+      runTextureGeneration();
+    });
+
+    document.getElementById("texStage").addEventListener("input", () => {
+      const stageInput = document.getElementById("texStage");
+      const stageLabel = document.getElementById("texStageLabel");
+      if (stageLabel && stageInput) {
+        const maxStages = parseInt(stageInput.max) || 8;
+        stageLabel.textContent = `${stageInput.value} / ${maxStages}`;
+      }
+      runTextureGeneration();
+    });
+
+    document.getElementById("texResolution").addEventListener("change", runTextureGeneration);
+    document.getElementById("texBaseColor").addEventListener("input", runTextureGeneration);
+    document.getElementById("texTipColor").addEventListener("input", runTextureGeneration);
+    document.getElementById("texBg").addEventListener("change", runTextureGeneration);
 
     document.getElementById("addCropBtn").addEventListener("click", addCrop);
     document.getElementById("clearBtn").addEventListener("click", clearForm);
@@ -1894,6 +2487,7 @@
         document.getElementById("tab-calendar").classList.toggle("active", tab === "calendar");
         document.getElementById("tab-inputs").classList.toggle("active", tab === "inputs");
         document.getElementById("tab-exports").classList.toggle("active", tab === "exports");
+        document.getElementById("tab-textures").classList.toggle("active", tab === "textures");
       });
     });
 
@@ -1912,6 +2506,8 @@
 
     updateInputSourceStatus();
     renderAll();
+    applyAutoTexColors();
+    runTextureGeneration();
   </script>
 </body>
 </html>
