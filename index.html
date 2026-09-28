@@ -202,14 +202,26 @@
       color: #e2e8f0;
     }
 
+    .tex-fill-preview {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
     .tex-fill-preview canvas {
-      width: 100%;
+      width: 70%;
       max-width: 360px;
       aspect-ratio: 1;
       border-radius: 10px;
       border: 1px solid #334155;
       display: block;
-      margin-bottom: 12px;
+    }
+
+    .tex-fill-preview canvas.tex-hud {
+      width: 25%;
+      max-width: 128px;
+      background: repeating-conic-gradient(#1e293b 0% 25%, #273449 0% 50%) 50% / 16px 16px;
     }
 
     .tex-fill-fields {
@@ -718,14 +730,36 @@
         <section class="panel span-12" id="texFillPanel">
           <h2>Fill Plane &amp; Windrow</h2>
           <p class="muted">The fill plane is the top-down texture of the harvested crop in trailers, heaps and silos. Windrows use a straw fill type's textures. Both tile in every direction, and the fill type XML points at them.</p>
-          <div class="field" style="max-width: 420px; margin-top: 10px;">
-            <label for="texFillFolder">Texture folder in your mod (used in the fill type XML)</label>
-            <input id="texFillFolder" type="text" value="textures/fillPlanes/" />
+          <div class="tex-fill-fields" style="margin-top: 10px;">
+            <div class="field">
+              <label for="texFillFolder">Fill plane folder in your mod</label>
+              <input id="texFillFolder" type="text" value="textures/fillPlanes/" />
+            </div>
+            <div class="field">
+              <label for="texHudFolder">HUD icon folder in your mod</label>
+              <input id="texHudFolder" type="text" value="textures/hud/" />
+            </div>
+            <div class="field">
+              <label for="texHudStyle">HUD Icon Style</label>
+              <select id="texHudStyle">
+                <option value="color">Colored heap</option>
+                <option value="white">Flat white</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="texHudSize">HUD Icon Size</label>
+              <select id="texHudSize">
+                <option value="128">128 × 128</option>
+                <option value="256" selected>256 × 256</option>
+                <option value="512">512 × 512</option>
+              </select>
+            </div>
           </div>
+          <p class="muted">Downloads are laid out like your mod, using these folders, so they can be unzipped straight into it.</p>
           <div class="grid">
             <div class="span-6">
               <h3 class="tex-sub">Harvested Crop (Fill Plane)</h3>
-              <div class="tex-fill-preview"><canvas id="texFillCanvas" width="512" height="512"></canvas></div>
+              <div class="tex-fill-preview"><canvas id="texFillCanvas" width="512" height="512"></canvas><canvas id="texFillHud" class="tex-hud" width="256" height="256" title="HUD icon"></canvas></div>
               <div id="texFillFields" class="tex-fill-fields"></div>
               <div class="btn-row">
                 <button id="texFillResetBtn" class="secondary">Reset to Preset</button>
@@ -742,7 +776,7 @@
                 </select>
               </div>
               <p id="texWindrowNote" class="muted" style="margin-bottom: 10px;"></p>
-              <div class="tex-fill-preview"><canvas id="texStrawCanvas" width="512" height="512"></canvas></div>
+              <div class="tex-fill-preview"><canvas id="texStrawCanvas" width="512" height="512"></canvas><canvas id="texStrawHud" class="tex-hud" width="256" height="256" title="HUD icon"></canvas></div>
               <div id="texStrawFields" class="tex-fill-fields"></div>
               <div class="btn-row">
                 <button id="texStrawResetBtn" class="secondary">Reset to Preset</button>
@@ -1522,7 +1556,7 @@
     }
 
     // A fill type for a new crop (or its straw), cloned from a base-game template so it keeps sensible
-    // physics and economy, with <textures> pointing at the fill plane files from the Textures tab.
+    // physics and economy, with <textures> and the HUD <image> pointing at files from the Textures tab.
     // FS25 XML names textures with .png; the game loads the .dds with the same name.
     function createCropFillTypeNode(xmlDoc, templateNode, name, title, crop, straw) {
       const node = templateNode ? templateNode.cloneNode(true) : xmlDoc.createElement("fillType");
@@ -1546,9 +1580,12 @@
       textures.setAttribute("height", `${folder}${base}_height.png`);
       textures.setAttribute("displacement", `${folder}${base}_displacement.png`);
       textures.setAttribute("distance", `${folder}distance/${base}Distance_diffuse.png`);
-      if (Array.from(node.children).some((child) => child.tagName === "image")) {
-        node.insertBefore(xmlDoc.createComment(` HUD icon is still the ${straw ? "straw" : "wheat"} one; replace it with your own `), node.firstChild);
+      let image = Array.from(node.children).find((child) => child.tagName === "image");
+      if (!image) {
+        image = xmlDoc.createElement("image");
+        node.insertBefore(image, textures);
       }
+      image.setAttribute("hud", crop ? getHudIconPath(crop, straw) : "");
       return node;
     }
 
@@ -2496,7 +2533,7 @@
     // Fill plane and windrow straw textures
     // ---------------------------------------------------------------------------
 
-    const FILL_FOLDER_KEY = "fs25CropMaker.fillFolder.v1";
+    const FILL_SETTINGS_KEY = "fs25CropMaker.fillExport.v1";
     const FILL_MATERIALS = [
       ["kernels", "Kernels (grain, corn, sunflower)"], ["seeds", "Round seeds (canola, peas, soy)"], ["beans", "Beans & peanuts"],
       ["tubers", "Tubers & bulbs (potato, onion, beet)"], ["roots", "Long roots & pods (carrot, green bean)"], ["fluff", "Fluff (cotton)"],
@@ -2587,9 +2624,24 @@
       return CT.getStrawPreset(String(cropName || "").toUpperCase(), getCropTextureDesign(cropName));
     }
 
+    // Normalizes a mod-relative folder: forward slashes, no leading slash or "..", trailing slash.
+    function getModFolder(inputId) {
+      const folder = document.getElementById(inputId).value.trim().replace(/\\/g, "/")
+        .split("/").filter((part) => part && part !== "." && part !== "..").join("/");
+      return folder ? `${folder}/` : "";
+    }
+
     function getFillFolder() {
-      const folder = document.getElementById("texFillFolder").value.trim().replace(/\\/g, "/");
-      return folder && !folder.endsWith("/") ? `${folder}/` : folder;
+      return getModFolder("texFillFolder");
+    }
+
+    function getHudIconPath(crop, straw) {
+      return `${getModFolder("texHudFolder")}hud_fill_${getFillFileBase(crop, straw)}.png`;
+    }
+
+    function makeHudIcon(cropName, straw) {
+      const design = straw ? { ...getCropStrawDesign(cropName), material: "strands" } : getCropFillDesign(cropName);
+      return CT.generateHudIcon(design, Number(document.getElementById("texHudSize").value) || 256, `${cropName}:${straw ? "straw" : "fill"}`, document.getElementById("texHudStyle").value);
     }
 
     // File base names follow the base game's style: lowercase fill type, "Straw" suffix for straw.
@@ -2639,6 +2691,12 @@
       const resolution = Math.min(512, Number(document.getElementById("texResolution").value) || 512);
       drawTiledPreview("texFillCanvas", CT.generateFillPlaneMaps(getCropFillDesign(cropName), resolution, `${cropName}:fill`));
       drawTiledPreview("texStrawCanvas", CT.generateFillPlaneMaps({ ...getCropStrawDesign(cropName), material: "strands" }, resolution, `${cropName}:straw`));
+      [["texFillHud", false], ["texStrawHud", true]].forEach(([id, straw]) => {
+        const canvas = document.getElementById(id);
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(makeHudIcon(cropName, straw), 0, 0, canvas.width, canvas.height);
+      });
     }
 
     let fillPreviewTimer = 0;
@@ -2657,19 +2715,23 @@
       const design = straw ? { ...getCropStrawDesign(cropName), material: "strands" } : getCropFillDesign(cropName);
       const maps = CT.generateFillPlaneMaps(design, resolution, `${cropName}:${straw ? "straw" : "fill"}`);
       const base = getFillFileBase(crop, straw);
+      const folder = getFillFolder();
+      // Height and displacement are single-channel: BC4 when compressing, 8-bit gray when not.
+      const colorFormat = { "dds-bc3": "BC3", "dds-bc1": "BC1", "dds-rgba": "RGBA" }[format];
+      const grayFormat = format === "dds-rgba" ? "L8" : "BC4";
       const entries = [
-        [`${base}_diffuse`, maps.diffuse],
-        [`${base}_normal`, maps.normal],
-        [`${base}_height`, maps.height],
-        [`${base}_displacement`, maps.displacement],
-        [`distance/${base}Distance_diffuse`, maps.distance]
+        [`${folder}${base}_diffuse`, maps.diffuse, colorFormat],
+        [`${folder}${base}_normal`, maps.normal, colorFormat],
+        [`${folder}${base}_height`, maps.height, grayFormat],
+        [`${folder}${base}_displacement`, maps.displacement, grayFormat],
+        [`${folder}distance/${base}Distance_diffuse`, maps.distance, colorFormat],
+        [getHudIconPath(crop, straw).replace(/\.png$/, ""), makeHudIcon(cropName, straw), colorFormat === "BC1" ? "BC3" : colorFormat]
       ];
       const files = [];
-      for (const [name, canvas] of entries) {
+      for (const [name, canvas, dds] of entries) {
         if (format === "png") {
           files.push({ name: `${name}.png`, bytes: await canvasToPngBytes(canvas) });
         } else {
-          const dds = { "dds-bc3": "BC3", "dds-bc1": "BC1", "dds-rgba": "RGBA" }[format];
           files.push({ name: `${name}.dds`, bytes: CT.encodeDds(canvas, dds, true) });
         }
       }
@@ -2707,22 +2769,34 @@
     buildSmallFields("texFillFields", "tf", FILL_FIELDS, onFillFieldInput);
     buildSmallFields("texStrawFields", "ts", STRAW_FIELDS, onStrawFieldInput);
 
+    const FILL_EXPORT_SETTINGS = ["texFillFolder", "texHudFolder", "texHudStyle", "texHudSize"];
     try {
-      const savedFolder = localStorage.getItem(FILL_FOLDER_KEY);
-      if (savedFolder !== null) {
-        document.getElementById("texFillFolder").value = savedFolder;
-      }
+      const saved = JSON.parse(localStorage.getItem(FILL_SETTINGS_KEY) || "{}");
+      FILL_EXPORT_SETTINGS.forEach((id) => {
+        if (typeof saved[id] === "string") {
+          document.getElementById(id).value = saved[id];
+        }
+      });
     } catch (error) {
-      // Storage unavailable; keep the default folder.
+      // Storage unavailable or unreadable; keep the defaults.
     }
 
-    document.getElementById("texFillFolder").addEventListener("input", (event) => {
-      try {
-        localStorage.setItem(FILL_FOLDER_KEY, event.target.value);
-      } catch (error) {
-        // Storage unavailable; the folder still applies for this session.
-      }
-      updateGeneratedXml(false);
+    FILL_EXPORT_SETTINGS.forEach((id) => {
+      document.getElementById(id).addEventListener("input", () => {
+        try {
+          const values = {};
+          FILL_EXPORT_SETTINGS.forEach((key) => {
+            values[key] = document.getElementById(key).value;
+          });
+          localStorage.setItem(FILL_SETTINGS_KEY, JSON.stringify(values));
+        } catch (error) {
+          // Storage unavailable; the settings still apply for this session.
+        }
+        updateGeneratedXml(false);
+        if (id === "texHudStyle" || id === "texHudSize") {
+          scheduleFillPreview();
+        }
+      });
     });
 
     document.getElementById("texWindrowType").addEventListener("change", (event) => {

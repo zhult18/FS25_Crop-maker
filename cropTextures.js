@@ -1590,6 +1590,119 @@
     return { diffuse, normal, height, displacement: height, distance };
   }
 
+  // Flat white pictogram: a low heap with three enlarged pieces of the material above it, each
+  // separated from what's behind by a thin transparent gap so the shapes read at small sizes.
+  function drawWhiteHudIcon(canvas, f, size, seedName) {
+    const ctx = canvas.getContext("2d");
+    const piece = document.createElement("canvas");
+    piece.width = size;
+    piece.height = size;
+    const pctx = piece.getContext("2d");
+    const scratch = document.createElement("canvas").getContext("2d");
+    const white = { ...f, color: "#ffffff", color2: "#ffffff", variation: 0, accent: 0 };
+    const rng = makeSeedRng(hashString(`${seedName}:white`));
+
+    const stamp = (drawShape, gap) => {
+      // Cut a gap around the shape, then draw it solid white.
+      pctx.clearRect(0, 0, size, size);
+      drawShape(pctx);
+      const img = pctx.getImageData(0, 0, size, size);
+      for (let i = 0; i < img.data.length; i += 4) {
+        const a = img.data[i + 3];
+        img.data[i] = img.data[i + 1] = img.data[i + 2] = 255;
+        img.data[i + 3] = a > 24 ? 255 : 0;
+      }
+      pctx.putImageData(img, 0, 0);
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        ctx.drawImage(piece, Math.cos(a) * gap, Math.sin(a) * gap);
+      }
+      ctx.restore();
+      ctx.drawImage(piece, 0, 0);
+    };
+
+    stamp((c) => {
+      c.fillStyle = "#ffffff";
+      c.beginPath();
+      c.moveTo(size * 0.08, size * 0.86);
+      c.bezierCurveTo(size * 0.25, size * 0.7, size * 0.35, size * 0.52, size * 0.5, size * 0.5);
+      c.bezierCurveTo(size * 0.65, size * 0.52, size * 0.75, size * 0.7, size * 0.92, size * 0.86);
+      c.closePath();
+      c.fill();
+    }, 0);
+
+    const long = ["roots", "leafy", "strands"].includes(f.material);
+    const pieceSize = long ? size * 0.42 : size * (f.material === "tubers" || f.material === "fluff" ? 0.3 : 0.24) / Math.max(1, f.elongation * 0.6);
+    const spots = long
+      ? [[0.34, 0.3, 1.0], [0.5, 0.26, 1.57], [0.66, 0.3, 2.14]]
+      : [[0.3, 0.42, -0.6], [0.7, 0.42, 0.6], [0.5, 0.22, 0.1]];
+    spots.forEach(([x, y, a]) => {
+      stamp((c) => drawFillParticle(c, scratch, { x: x * size, y: y * size, a: a + (rng() - 0.5) * 0.2 }, white, pieceSize, makeSeedRng(Math.floor(rng() * 1e9)), 0, 1), Math.max(2, size / 48));
+    });
+    return canvas;
+  }
+
+  // HUD fill type icon: a heap of the material on a transparent background. style "color" draws the
+  // heap with the fill plane texture and lighting; "white" draws a flat white icon with faint detail.
+  function generateHudIcon(fillDesign, size = 256, seedName = "HUD", style = "color") {
+    const f = { ...DEFAULT_FILL, ...(fillDesign || {}) };
+    // Scale the tile so a dozen or so pieces span the icon and each one is readable.
+    const across = f.material === "strands" ? 3 : 12;
+    const texture = generateFillPlaneMaps({ ...f, unitSize: Math.max(0.02, (f.size / 100) * across) }, size, `${seedName}:hud`).diffuse;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const heap = () => {
+      ctx.beginPath();
+      ctx.moveTo(size * 0.06, size * 0.8);
+      ctx.bezierCurveTo(size * 0.2, size * 0.62, size * 0.3, size * 0.24, size * 0.5, size * 0.2);
+      ctx.bezierCurveTo(size * 0.7, size * 0.24, size * 0.8, size * 0.62, size * 0.94, size * 0.8);
+      ctx.bezierCurveTo(size * 0.7, size * 0.9, size * 0.3, size * 0.9, size * 0.06, size * 0.8);
+      ctx.closePath();
+    };
+
+    if (style === "white") {
+      return drawWhiteHudIcon(canvas, f, size, seedName);
+    }
+
+    // Soft ground shadow.
+    const shadow = ctx.createRadialGradient(size * 0.5, size * 0.84, size * 0.05, size * 0.5, size * 0.84, size * 0.48);
+    shadow.addColorStop(0, "rgba(0, 0, 0, 0.45)");
+    shadow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = shadow;
+    ctx.beginPath();
+    ctx.ellipse(size * 0.5, size * 0.84, size * 0.48, size * 0.1, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    heap();
+    ctx.clip();
+    ctx.drawImage(texture, 0, 0);
+    // Light from the upper left, darker toward the lower right and the base.
+    const side = ctx.createLinearGradient(size * 0.15, size * 0.2, size * 0.9, size * 0.85);
+    side.addColorStop(0, "rgba(255, 250, 235, 0.28)");
+    side.addColorStop(0.5, "rgba(255, 250, 235, 0)");
+    side.addColorStop(1, "rgba(0, 0, 0, 0.4)");
+    ctx.fillStyle = side;
+    ctx.fillRect(0, 0, size, size);
+    const base = ctx.createLinearGradient(0, size * 0.55, 0, size * 0.9);
+    base.addColorStop(0, "rgba(0, 0, 0, 0)");
+    base.addColorStop(1, "rgba(0, 0, 0, 0.3)");
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, size, size);
+    ctx.restore();
+
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.35)";
+    ctx.lineWidth = Math.max(1, size / 128);
+    heap();
+    ctx.stroke();
+    return canvas;
+  }
+
   // ---------------------------------------------------------------------------
   // DDS export (BC1 / BC3 with mipmaps, or uncompressed BGRA)
   // ---------------------------------------------------------------------------
@@ -1751,11 +1864,12 @@
     out[offset + 7] = (indices >>> 24) & 255;
   }
 
-  function encodeAlphaBlock(block, out, offset) {
+  // BC3 alpha / BC4 block: 8-value interpolated palette over one channel (3 = alpha, 0 = red).
+  function encodeAlphaBlock(block, out, offset, channel = 3) {
     let a0 = 0;
     let a1 = 255;
     for (let i = 0; i < 16; i++) {
-      const a = block[i * 4 + 3];
+      const a = block[i * 4 + channel];
       if (a > a0) a0 = a;
       if (a < a1) a1 = a;
     }
@@ -1769,7 +1883,7 @@
     for (let half = 0; half < 2; half++) {
       let bits = 0;
       for (let k = 0; k < 8; k++) {
-        const a = block[(half * 8 + k) * 4 + 3];
+        const a = block[(half * 8 + k) * 4 + channel];
         let idx = 0;
         let best = Infinity;
         for (let p = 0; p < 8; p++) {
@@ -1788,6 +1902,13 @@
   }
 
   function encodeLevel(data, W, H, format) {
+    if (format === "L8") {
+      const out = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        out[i] = data[i * 4];
+      }
+      return out;
+    }
     if (format === "RGBA") {
       const out = new Uint8Array(W * H * 4);
       for (let i = 0; i < W * H; i++) {
@@ -1800,7 +1921,7 @@
     }
     const bw = Math.max(1, Math.ceil(W / 4));
     const bh = Math.max(1, Math.ceil(H / 4));
-    const blockBytes = format === "BC1" ? 8 : 16;
+    const blockBytes = format === "BC1" || format === "BC4" ? 8 : 16;
     const out = new Uint8Array(bw * bh * blockBytes);
     const block = new Uint8Array(64);
     for (let by = 0; by < bh; by++) {
@@ -1820,6 +1941,8 @@
         const o = (by * bw + bx) * blockBytes;
         if (format === "BC1") {
           encodeColorBlock(block, out, o, true);
+        } else if (format === "BC4") {
+          encodeAlphaBlock(block, out, o, 0);
         } else {
           encodeAlphaBlock(block, out, o);
           encodeColorBlock(block, out, o + 8, false);
@@ -1829,7 +1952,8 @@
     return out;
   }
 
-  // format: "BC1" (DXT1, 1-bit alpha), "BC3" (DXT5, full alpha) or "RGBA" (uncompressed).
+  // format: "BC1" (DXT1, 1-bit alpha), "BC3" (DXT5, full alpha), "RGBA" (uncompressed), or for
+  // single-channel maps such as height: "BC4" (compressed, red channel) or "L8" (uncompressed 8-bit).
   function encodeDds(canvas, format = "BC3", mipmaps = true) {
     const W = canvas.width;
     const H = canvas.height;
@@ -1868,17 +1992,22 @@
     u32(0, 0x20534444); // "DDS "
     u32(4, 124);
     const DDSD_CAPS = 0x1, DDSD_HEIGHT = 0x2, DDSD_WIDTH = 0x4, DDSD_PITCH = 0x8, DDSD_PIXELFORMAT = 0x1000, DDSD_MIPMAPCOUNT = 0x20000, DDSD_LINEARSIZE = 0x80000;
-    const compressed = format !== "RGBA";
+    const compressed = format !== "RGBA" && format !== "L8";
+    const bytesPerPixel = format === "L8" ? 1 : 4;
     u32(8, DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT | (levels.length > 1 ? DDSD_MIPMAPCOUNT : 0) | (compressed ? DDSD_LINEARSIZE : DDSD_PITCH));
     u32(12, H);
     u32(16, W);
-    u32(20, compressed ? levels[0].length : W * 4);
+    u32(20, compressed ? levels[0].length : W * bytesPerPixel);
     u32(24, 0);
     u32(28, levels.length);
     u32(76, 32);
     if (compressed) {
       u32(80, 0x4); // DDPF_FOURCC
-      u32(84, format === "BC1" ? 0x31545844 : 0x35545844); // "DXT1" / "DXT5"
+      u32(84, { BC1: 0x31545844, BC3: 0x35545844, BC4: 0x55344342 }[format]); // "DXT1" / "DXT5" / "BC4U"
+    } else if (format === "L8") {
+      u32(80, 0x20000); // DDPF_LUMINANCE
+      u32(88, 8);
+      u32(92, 0xff);
     } else {
       u32(80, 0x41); // DDPF_RGB | DDPF_ALPHAPIXELS
       u32(88, 32);
@@ -1912,6 +2041,7 @@
     getFillPreset,
     getStrawPreset,
     generateFillPlaneMaps,
+    generateHudIcon,
     encodeDds,
     makeSeedRng,
     lerpHex,
