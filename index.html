@@ -180,6 +180,16 @@
       background: linear-gradient(180deg, #78350f 0%, #78350f 50%, #14532d 50%, #14532d 100%);
     }
 
+    .tex-design-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 12px;
+    }
+
+    .tex-design-grid input[type="color"] {
+      width: 100%;
+    }
+
     .muted {
       color: #94a3b8;
       font-size: 13px;
@@ -609,6 +619,84 @@
               <option value="#1a1008">Brown Soil</option>
               <option value="#0a1204">Dark Ground</option>
             </select>
+          </div>
+          <div id="texDesign">
+            <h2>Plant Design</h2>
+            <p class="muted" style="margin-bottom: 12px;">Shape the plant for this crop. Each crop keeps its own design, and exports use it.</p>
+            <div class="field">
+              <label for="texDesignPreset">Start From</label>
+              <select id="texDesignPreset">
+                <option value="CUSTOM">Custom</option>
+                <option value="BARLEY">Barley (long awns, droops when ripe)</option>
+                <option value="WHEAT">Wheat (compact, upright)</option>
+                <option value="RYE">Rye (slender, medium awns)</option>
+                <option value="OAT">Oat (open panicle)</option>
+                <option value="RICE">Rice (drooping panicle)</option>
+                <option value="SORGHUM">Sorghum (dense panicle)</option>
+                <option value="LEAFY">Leafy (no head)</option>
+              </select>
+            </div>
+            <div class="tex-design-grid">
+              <div class="field">
+                <label for="texHeadKind">Head Type</label>
+                <select id="texHeadKind" data-design="kind">
+                  <option value="spike">Spike / ear</option>
+                  <option value="panicle">Panicle (hanging)</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="texRows">Kernel Rows</label>
+                <select id="texRows" data-design="rows" data-number>
+                  <option value="2">2 (side view)</option>
+                  <option value="3">3 (six-row look)</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="texPlantHeight">Plant Height <span data-out="texPlantHeight"></span></label>
+                <input id="texPlantHeight" data-design="height" type="range" min="0.5" max="1.3" step="0.05" />
+              </div>
+              <div class="field">
+                <label for="texLeafWidth">Leaf Width <span data-out="texLeafWidth"></span></label>
+                <input id="texLeafWidth" data-design="leafWidth" type="range" min="0.5" max="2.5" step="0.1" />
+              </div>
+              <div class="field">
+                <label for="texHeadLen">Head Length <span data-out="texHeadLen"></span></label>
+                <input id="texHeadLen" data-design="headLen" type="range" min="0.03" max="0.2" step="0.005" />
+              </div>
+              <div class="field">
+                <label for="texHeadW">Head Width <span data-out="texHeadW"></span></label>
+                <input id="texHeadW" data-design="headW" type="range" min="0.008" max="0.08" step="0.002" />
+              </div>
+              <div class="field">
+                <label for="texKernels">Kernels per Head <span data-out="texKernels"></span></label>
+                <input id="texKernels" data-design="spikelets" type="range" min="4" max="30" step="1" />
+              </div>
+              <div class="field">
+                <label for="texNod">Droop When Ripe <span data-out="texNod"></span></label>
+                <input id="texNod" data-design="nod" type="range" min="0" max="2.8" step="0.05" />
+              </div>
+              <div class="field">
+                <label for="texAwn">Awn Length <span data-out="texAwn"></span></label>
+                <input id="texAwn" data-design="awn" type="range" min="0" max="3" step="0.1" />
+              </div>
+              <div class="field">
+                <label for="texAwnSpread">Awn Spread <span data-out="texAwnSpread"></span></label>
+                <input id="texAwnSpread" data-design="awnSpread" type="range" min="0" max="0.5" step="0.01" />
+              </div>
+              <div class="field">
+                <label for="texHeadGreen">Head (Green)</label>
+                <input id="texHeadGreen" data-design="green" type="color" />
+              </div>
+              <div class="field">
+                <label for="texHeadRipe">Head (Ripe)</label>
+                <input id="texHeadRipe" data-design="ripe" type="color" />
+              </div>
+              <div class="field">
+                <label for="texAwnRipe">Awns (Ripe)</label>
+                <input id="texAwnRipe" data-design="awnRipe" type="color" />
+              </div>
+            </div>
           </div>
           <div class="btn-row">
             <button id="texGenerateBtn">Generate</button>
@@ -2202,18 +2290,19 @@
     }
 
     function drawGrainPlantSide(ctx, x, opts) {
-      const { H, px, g, ripen, spec, colors, rng, depth } = opts;
+      const { H, px, g, ripen, spec, colors, rng, depth, heightScale = 1, leafWidth = 1 } = opts;
       // Plants further back sit in the canopy's shade.
       const dark = -0.32 * (1 - depth);
       const dryLeaf = "#b39660";
       const straw = "#cdb57a";
-      const headGreen = lerpHex("#86a652", "#a3b866", g);
+      const green = (spec && spec.green) || "#86a652";
+      const headGreen = lerpHex(green, shadeHex(green, 0.15), g);
       const headColor = shadeHex(spec ? lerpHex(headGreen, spec.ripe, ripen) : headGreen, dark);
       const awnColor = shadeHex(spec ? lerpHex(lerpHex(headGreen, "#ffffff", 0.25), spec.awnRipe, ripen) : headGreen, dark);
       const stemColor = shadeHex(lerpHex(colors.base, straw, ripen), dark);
 
       const heightVar = 0.78 + rng() * 0.27;
-      const stemH = H * (0.12 + 0.6 * g) * heightVar;
+      const stemH = Math.min(H * 0.9, H * (0.12 + 0.6 * g) * heightVar * heightScale);
       const headed = spec && g >= 0.55;
       const tillers = 1 + Math.floor(rng() * 2) + Math.floor(g * 2);
 
@@ -2235,7 +2324,7 @@
           const rise = leafLen * (0.25 + rng() * 0.75) * (1 - dry * 0.5);
           const tip = { x: a.x + side * leafLen * (0.45 + rng() * 0.5), y: a.y - rise + leafLen * (rng() * 0.35 + dry * 0.4) };
           const lc = { x: a.x + side * leafLen * (0.15 + rng() * 0.25), y: a.y - rise * (1.05 + rng() * 0.35) };
-          const lw = H * 0.009 * (0.8 + g * 0.4) * (1 - dry * 0.35);
+          const lw = H * 0.009 * (0.8 + g * 0.4) * (1 - dry * 0.35) * leafWidth;
           // Leaves facing away from the light (left) are a touch darker.
           const light = side < 0 ? 0.05 : -0.07;
           const leafBase = shadeHex(lerpHex(colors.tip, dryLeaf, dry), dark + light + (rng() - 0.5) * 0.08);
@@ -2316,9 +2405,18 @@
     }
 
     // Side-view (billboard) texture: plants stand on the bottom edge and wrap horizontally so it tiles.
-    function generateGrainSideTexture(ctx, W, H, cropName, g, colors, rng) {
+    // design (optional) comes from the Plant Design panel; without it, known crops use their built-in spec.
+    function generateGrainSideTexture(ctx, W, H, cropName, g, colors, rng, design) {
       const px = H / 512;
-      const spec = GRAIN_HEAD_SPECS[String(cropName).toUpperCase()] || null;
+      const spec = design
+        ? (design.kind === "none" ? null : design)
+        : GRAIN_HEAD_SPECS[String(cropName).toUpperCase()] || null;
+      // Shrink the stalks if the tallest upright head (plus awns) would run off the top edge.
+      const headReach = spec && spec.kind !== "panicle" ? spec.headLen * 1.15 * (1 + spec.awn) : spec ? spec.headLen * 1.15 : 0;
+      const tallestStem = 0.72 * 1.05 * 1.05 * 1.07;
+      const fitScale = Math.min(1, (0.97 - headReach) / (tallestStem * ((design && design.height) || 1)));
+      const heightScale = ((design && design.height) || 1) * fitScale;
+      const leafWidth = (design && design.leafWidth) || 1;
       const ripen = Math.max(0, Math.min(1, (g - 0.7) / 0.3));
       const count = Math.round((14 + g * 18) * (W / H));
       const plants = [];
@@ -2339,7 +2437,7 @@
             return;
           }
           // Re-seed per plant so wrapped copies are identical.
-          drawGrainPlantSide(lctx, x, { H, px, g, ripen, spec, colors, rng: makeSeedRng(p.seed), depth: p.depth });
+          drawGrainPlantSide(lctx, x, { H, px, g, ripen, spec, colors, rng: makeSeedRng(p.seed), depth: p.depth, heightScale, leafWidth });
         });
       });
       finishFoliageLayer(layer, W, H, Math.floor(rng() * 0xffffffff), g);
@@ -2355,7 +2453,8 @@
         resolution = 512,
         baseColor = null,
         tipColor = null,
-        backgroundColor = "transparent"
+        backgroundColor = "transparent",
+        grainDesign = null
       } = options;
 
       canvas.width = resolution;
@@ -2392,7 +2491,7 @@
       const rng = makeSeedRng(rngSeed);
 
       if (style === "grain") {
-        generateGrainSideTexture(ctx, W, H, cropName, growthFactor, colors, rng);
+        generateGrainSideTexture(ctx, W, H, cropName, growthFactor, colors, rng, grainDesign);
         return;
       }
 
@@ -2424,6 +2523,7 @@
         sel.appendChild(opt);
       });
       updateTexStageMax();
+      loadTexDesignControls();
     }
 
     function updateTexStageMax() {
@@ -2497,7 +2597,8 @@
         resolution,
         baseColor: baseEl && baseEl.value ? baseEl.value : null,
         tipColor: tipEl && tipEl.value ? tipEl.value : null,
-        backgroundColor: bgEl ? bgEl.value : "transparent"
+        backgroundColor: bgEl ? bgEl.value : "transparent",
+        grainDesign: getCropTextureDesign(cropName)
       });
       canvas.style.maxWidth = Math.min(480, resolution) + "px";
     }
@@ -2561,7 +2662,8 @@
           resolution,
           baseColor: baseEl && baseEl.value ? baseEl.value : null,
           tipColor: tipEl && tipEl.value ? tipEl.value : null,
-          backgroundColor: bgEl ? bgEl.value : "transparent"
+          backgroundColor: bgEl ? bgEl.value : "transparent",
+          grainDesign: getCropTextureDesign(cropName)
         });
         offscreen.toBlob((blob) => {
           const reader = new FileReader();
@@ -2580,6 +2682,98 @@
       processNextStage();
     }
 
+    // Plant Design: a per-crop head/plant spec for the side-view grain renderer, so new crops
+    // that aren't in the game can be given their own look.
+    const DEFAULT_TEXTURE_DESIGN = {
+      kind: "spike", headLen: 0.085, headW: 0.022, spikelets: 10, rows: 2, awn: 0, awnSpread: 0.1, nod: 0.4,
+      green: "#86a652", ripe: "#c9a24a", awnRipe: "#d8b664", height: 1, leafWidth: 1
+    };
+
+    function getTextureDesignPreset(preset) {
+      if (preset === "LEAFY") {
+        return { ...DEFAULT_TEXTURE_DESIGN, kind: "none", preset };
+      }
+      if (GRAIN_HEAD_SPECS[preset]) {
+        return { ...DEFAULT_TEXTURE_DESIGN, ...GRAIN_HEAD_SPECS[preset], rows: GRAIN_HEAD_SPECS[preset].rows || 2, preset };
+      }
+      return { ...DEFAULT_TEXTURE_DESIGN, preset: "CUSTOM" };
+    }
+
+    function getCropTextureDesign(cropName) {
+      const key = String(cropName || "").toUpperCase();
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (crop && crop.textureDesign) {
+        return crop.textureDesign;
+      }
+      if (GRAIN_HEAD_SPECS[key]) {
+        return getTextureDesignPreset(key);
+      }
+      // Base-game crops without a head spec (e.g. canola) stay leafy; new crops start from a plain ear.
+      const isBaseGameCrop = defaultCrops.some((c) => c.name === key);
+      return getTextureDesignPreset(isBaseGameCrop ? "LEAFY" : "CUSTOM");
+    }
+
+    function getEffectiveTextureStyle() {
+      const styleEl = document.getElementById("texStyle");
+      const cropName = document.getElementById("texCrop").value;
+      const style = styleEl ? styleEl.value : "grain";
+      return style === "auto" ? getAutoStyleForCrop(cropName) : style;
+    }
+
+    function updateTexDesignOutputs() {
+      document.querySelectorAll("#texDesign [data-out]").forEach((out) => {
+        const input = document.getElementById(out.getAttribute("data-out"));
+        out.textContent = input ? input.value : "";
+      });
+    }
+
+    function loadTexDesignControls() {
+      const panel = document.getElementById("texDesign");
+      const cropName = document.getElementById("texCrop").value;
+      panel.style.display = getEffectiveTextureStyle() === "grain" ? "" : "none";
+      const design = getCropTextureDesign(cropName);
+      document.getElementById("texDesignPreset").value = design.preset || "CUSTOM";
+      panel.querySelectorAll("[data-design]").forEach((el) => {
+        const value = design[el.getAttribute("data-design")];
+        el.value = String(value ?? DEFAULT_TEXTURE_DESIGN[el.getAttribute("data-design")]);
+      });
+      updateTexDesignOutputs();
+    }
+
+    function saveTexDesignFromControls(preset) {
+      const cropName = document.getElementById("texCrop").value;
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (!crop) {
+        return;
+      }
+      const design = { preset };
+      document.querySelectorAll("#texDesign [data-design]").forEach((el) => {
+        const key = el.getAttribute("data-design");
+        design[key] = el.type === "range" || el.hasAttribute("data-number") ? Number(el.value) : el.value;
+      });
+      crop.textureDesign = design;
+    }
+
+    document.getElementById("texDesignPreset").addEventListener("change", (event) => {
+      const cropName = document.getElementById("texCrop").value;
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (crop) {
+        crop.textureDesign = getTextureDesignPreset(event.target.value);
+      }
+      loadTexDesignControls();
+      runTextureGeneration();
+    });
+
+    document.querySelectorAll("#texDesign [data-design]").forEach((el) => {
+      el.addEventListener("input", () => {
+        // Any manual tweak turns the design into a custom one.
+        document.getElementById("texDesignPreset").value = "CUSTOM";
+        saveTexDesignFromControls("CUSTOM");
+        updateTexDesignOutputs();
+        runTextureGeneration();
+      });
+    });
+
     document.getElementById("texGenerateBtn").addEventListener("click", runTextureGeneration);
 
     document.getElementById("texAutoBtn").addEventListener("click", () => {
@@ -2594,11 +2788,13 @@
     document.getElementById("texCrop").addEventListener("change", () => {
       updateTexStageMax();
       applyAutoTexColors();
+      loadTexDesignControls();
       runTextureGeneration();
     });
 
     document.getElementById("texStyle").addEventListener("change", () => {
       applyAutoTexColors();
+      loadTexDesignControls();
       runTextureGeneration();
     });
 
