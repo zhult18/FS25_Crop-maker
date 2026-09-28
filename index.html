@@ -196,6 +196,28 @@
       width: 100%;
     }
 
+    .tex-sub {
+      margin: 14px 0 10px;
+      font-size: 16px;
+      color: #e2e8f0;
+    }
+
+    .tex-fill-preview canvas {
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 1;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      display: block;
+      margin-bottom: 12px;
+    }
+
+    .tex-fill-fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      column-gap: 12px;
+    }
+
     .check-label {
       display: flex;
       align-items: center;
@@ -691,6 +713,43 @@
             <input id="texImportDesignsFile" type="file" accept=".json,application/json" hidden />
           </div>
           <div id="texDesignGroups" class="tex-design-groups"></div>
+        </section>
+
+        <section class="panel span-12" id="texFillPanel">
+          <h2>Fill Plane &amp; Windrow</h2>
+          <p class="muted">The fill plane is the top-down texture of the harvested crop in trailers, heaps and silos. Windrows use a straw fill type's textures. Both tile in every direction, and the fill type XML points at them.</p>
+          <div class="field" style="max-width: 420px; margin-top: 10px;">
+            <label for="texFillFolder">Texture folder in your mod (used in the fill type XML)</label>
+            <input id="texFillFolder" type="text" value="textures/fillPlanes/" />
+          </div>
+          <div class="grid">
+            <div class="span-6">
+              <h3 class="tex-sub">Harvested Crop (Fill Plane)</h3>
+              <div class="tex-fill-preview"><canvas id="texFillCanvas" width="512" height="512"></canvas></div>
+              <div id="texFillFields" class="tex-fill-fields"></div>
+              <div class="btn-row">
+                <button id="texFillResetBtn" class="secondary">Reset to Preset</button>
+                <button id="texFillDownloadBtn">Download Fill Plane Textures</button>
+              </div>
+            </div>
+            <div class="span-6">
+              <h3 class="tex-sub">Windrow Straw</h3>
+              <div class="field">
+                <label for="texWindrowType">Windrow Fill Type</label>
+                <select id="texWindrowType">
+                  <option value="STRAW">Base-game STRAW (no new textures needed)</option>
+                  <option value="CUSTOM">This crop's own straw</option>
+                </select>
+              </div>
+              <p id="texWindrowNote" class="muted" style="margin-bottom: 10px;"></p>
+              <div class="tex-fill-preview"><canvas id="texStrawCanvas" width="512" height="512"></canvas></div>
+              <div id="texStrawFields" class="tex-fill-fields"></div>
+              <div class="btn-row">
+                <button id="texStrawResetBtn" class="secondary">Reset to Preset</button>
+                <button id="texStrawDownloadBtn">Download Straw Textures</button>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </section>
@@ -1458,8 +1517,39 @@
     function buildFruitXml() {
       const root = escapeAttr(fruitRoot.value.trim() || "fruitTypes");
       const map = escapeAttr(mapName.value.trim() || "MyMap");
-      const rows = state.crops.map((crop) => `  <fruitType name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" fillType="${escapeAttr(crop.fillType)}" growthNumStates="${escapeAttr(crop.growthStates)}" seedUsagePerHectare="${escapeAttr(crop.seedRate)}" hasWindrow="${escapeAttr(crop.windrow)}" plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
+      const rows = state.crops.map((crop) => `  <fruitType name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" fillType="${escapeAttr(crop.fillType)}" growthNumStates="${escapeAttr(crop.growthStates)}" seedUsagePerHectare="${escapeAttr(crop.seedRate)}" hasWindrow="${escapeAttr(crop.windrow)}"${crop.windrow ? ` windrowName="${escapeAttr(crop.windrowFillType === "CUSTOM" ? getCustomStrawFillTypeName(crop) : "STRAW")}"` : ""} plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
       return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root} map=\"${map}\">`, ...rows, `</${root}>`].join("\n");
+    }
+
+    // A fill type for a new crop (or its straw), cloned from a base-game template so it keeps sensible
+    // physics and economy, with <textures> pointing at the fill plane files from the Textures tab.
+    // FS25 XML names textures with .png; the game loads the .dds with the same name.
+    function createCropFillTypeNode(xmlDoc, templateNode, name, title, crop, straw) {
+      const node = templateNode ? templateNode.cloneNode(true) : xmlDoc.createElement("fillType");
+      node.setAttribute("name", name);
+      node.setAttribute("title", title);
+      if (!templateNode) {
+        node.setAttribute("showOnPriceTable", "true");
+        node.setAttribute("isBulkType", "true");
+      }
+      let textures = Array.from(node.children).find((child) => child.tagName === "textures");
+      if (!textures) {
+        textures = xmlDoc.createElement("textures");
+        node.appendChild(textures);
+      }
+      const folder = getFillFolder();
+      const base = getFillFileBase(crop, straw);
+      const design = crop ? (straw ? getCropStrawDesign(crop.name) : getCropFillDesign(crop.name)) : CT.DEFAULT_FILL;
+      textures.setAttribute("diffuse", `${folder}${base}_diffuse.png`);
+      textures.setAttribute("unitSize", String(design.unitSize));
+      textures.setAttribute("normal", `${folder}${base}_normal.png`);
+      textures.setAttribute("height", `${folder}${base}_height.png`);
+      textures.setAttribute("displacement", `${folder}${base}_displacement.png`);
+      textures.setAttribute("distance", `${folder}distance/${base}Distance_diffuse.png`);
+      if (Array.from(node.children).some((child) => child.tagName === "image")) {
+        node.insertBefore(xmlDoc.createComment(` HUD icon is still the ${straw ? "straw" : "wheat"} one; replace it with your own `), node.firstChild);
+      }
+      return node;
     }
 
     function buildFillXml() {
@@ -1481,7 +1571,7 @@
 
         const title = originalFillTypeTitles[key] || crop.title || key;
         if (!byFillType.has(key)) {
-          byFillType.set(key, { name: key, title });
+          byFillType.set(key, { name: key, title, crop });
         }
       });
 
@@ -1566,12 +1656,23 @@
           return;
         }
 
-        const minimal = xmlDoc.createElement("fillType");
-        minimal.setAttribute("name", entry.name);
-        minimal.setAttribute("title", entry.title);
-        minimal.setAttribute("showOnPriceTable", "true");
-        newFillTypesNode.appendChild(minimal);
+        newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, templatesByName.get("WHEAT"), entry.name, entry.title, entry.crop, false));
         emittedNames.add(entry.name);
+      });
+
+      // Crops with their own windrow straw get a <FILLTYPE>_STRAW fill type modelled on STRAW.
+      const customStrawNames = [];
+      state.crops.forEach((crop) => {
+        if (!crop.windrow || crop.windrowFillType !== "CUSTOM") {
+          return;
+        }
+        const strawName = getCustomStrawFillTypeName(crop);
+        if (emittedNames.has(strawName)) {
+          return;
+        }
+        newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, templatesByName.get("STRAW"), strawName, `${crop.title} Straw`, crop, true));
+        emittedNames.add(strawName);
+        customStrawNames.push(strawName);
       });
 
       mapNode.replaceChild(newFillTypesNode, existingFillTypesNode);
@@ -1600,7 +1701,12 @@
 
       const categoryNodes = mapNode.querySelectorAll("fillTypeCategories > fillTypeCategory");
       categoryNodes.forEach((categoryNode) => {
-        const nextValue = filterFillTypeList(categoryNode.textContent || "");
+        let nextValue = filterFillTypeList(categoryNode.textContent || "");
+        // Custom straw goes wherever base-game STRAW goes (windrows, bales, bulk...).
+        const tokens = nextValue.split(/\s+/);
+        if (customStrawNames.length && tokens.includes("STRAW")) {
+          nextValue = [...tokens, ...customStrawNames.filter((n) => !tokens.includes(n))].join(" ");
+        }
         categoryNode.textContent = nextValue;
       });
 
@@ -2151,6 +2257,7 @@
       texCropSignature = signature;
       updateTexStageMax();
       loadDesignControls();
+      loadFillControls();
       scheduleTexturePreview(true);
     }
 
@@ -2228,6 +2335,7 @@
         if (texStripDirty) {
           texStripDirty = false;
           renderStageStrip();
+          scheduleFillPreview();
         }
       }, 120);
     }
@@ -2359,6 +2467,7 @@
     document.getElementById("texCrop").addEventListener("change", () => {
       updateTexStageMax();
       loadDesignControls();
+      loadFillControls();
       scheduleTexturePreview(true);
     });
 
@@ -2367,7 +2476,10 @@
       scheduleTexturePreview(false);
     });
 
-    document.getElementById("texResolution").addEventListener("change", () => scheduleTexturePreview(false));
+    document.getElementById("texResolution").addEventListener("change", () => {
+      scheduleTexturePreview(false);
+      scheduleFillPreview();
+    });
     document.getElementById("texBg").addEventListener("change", () => scheduleTexturePreview(false));
     document.getElementById("texDownloadBtn").addEventListener("click", downloadCurrentStage);
     document.getElementById("texDownloadAllBtn").addEventListener("click", downloadAllStagesZip);
@@ -2379,6 +2491,274 @@
       }
       event.target.value = "";
     });
+
+    // ---------------------------------------------------------------------------
+    // Fill plane and windrow straw textures
+    // ---------------------------------------------------------------------------
+
+    const FILL_FOLDER_KEY = "fs25CropMaker.fillFolder.v1";
+    const FILL_MATERIALS = [
+      ["kernels", "Kernels (grain, corn, sunflower)"], ["seeds", "Round seeds (canola, peas, soy)"], ["beans", "Beans & peanuts"],
+      ["tubers", "Tubers & bulbs (potato, onion, beet)"], ["roots", "Long roots & pods (carrot, green bean)"], ["fluff", "Fluff (cotton)"],
+      ["leafy", "Leaves (spinach, alfalfa, tobacco)"], ["strands", "Strands (straw, grass, hay)"]
+    ];
+    const FILL_FIELDS = [
+      { key: "material", label: "Material", type: "select", options: FILL_MATERIALS },
+      { key: "size", label: "Piece Size (cm)", type: "number", min: 0.05, max: 60, step: 0.05 },
+      { key: "elongation", label: "Length : Width", type: "number", min: 0.01, max: 6, step: 0.01 },
+      { key: "unitSize", label: "Tile Covers (m)", type: "number", min: 0.1, max: 6, step: 0.05 },
+      { key: "variation", label: "Color Variation", type: "range", min: 0, max: 0.5, step: 0.01 },
+      { key: "accent", label: "Markings (speckles, eyes, stripes)", type: "range", min: 0, max: 1, step: 0.05 },
+      { key: "color", label: "Main Color", type: "color" },
+      { key: "color2", label: "Second Color", type: "color" }
+    ];
+    const STRAW_FIELDS = [
+      { key: "size", label: "Strand Length (cm)", type: "number", min: 2, max: 80, step: 1 },
+      { key: "elongation", label: "Strand Width (share of length)", type: "number", min: 0.005, max: 0.2, step: 0.005 },
+      { key: "unitSize", label: "Tile Covers (m)", type: "number", min: 0.2, max: 6, step: 0.05 },
+      { key: "variation", label: "Color Variation", type: "range", min: 0, max: 0.5, step: 0.01 },
+      { key: "accent", label: "Leaf Bits", type: "range", min: 0, max: 1, step: 0.05 },
+      { key: "color", label: "Straw Color", type: "color" },
+      { key: "color2", label: "Leaf Bit Color", type: "color" }
+    ];
+
+    function buildSmallFields(containerId, prefix, fields, onInput) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = fields.map((f) => {
+        const id = `${prefix}_${f.key}`;
+        if (f.type === "select") {
+          return `<div class="field"><label for="${id}">${f.label}</label><select id="${id}">${f.options.map(([v, t]) => `<option value="${v}">${t}</option>`).join("")}</select></div>`;
+        }
+        if (f.type === "color") {
+          return `<div class="field"><label for="${id}">${f.label}</label><input id="${id}" type="color" /></div>`;
+        }
+        if (f.type === "number") {
+          return `<div class="field"><label for="${id}">${f.label}</label><input id="${id}" type="number" min="${f.min}" max="${f.max}" step="${f.step}" /></div>`;
+        }
+        return `<div class="field"><label for="${id}">${f.label} <span id="${id}_out"></span></label><input id="${id}" type="range" min="${f.min}" max="${f.max}" step="${f.step}" /></div>`;
+      }).join("");
+      container.querySelectorAll("input, select").forEach((el) => el.addEventListener("input", onInput));
+    }
+
+    function loadSmallFields(prefix, fields, values) {
+      fields.forEach((f) => {
+        const el = document.getElementById(`${prefix}_${f.key}`);
+        el.value = String(values[f.key]);
+        const out = document.getElementById(`${prefix}_${f.key}_out`);
+        if (out) {
+          out.textContent = String(values[f.key]);
+        }
+      });
+    }
+
+    function readSmallFields(prefix, fields, base) {
+      const values = { ...base };
+      fields.forEach((f) => {
+        const el = document.getElementById(`${prefix}_${f.key}`);
+        const out = document.getElementById(`${prefix}_${f.key}_out`);
+        if (out) {
+          out.textContent = el.value;
+        }
+        if (f.type === "number" || f.type === "range") {
+          const n = Number(el.value);
+          values[f.key] = Number.isFinite(n) && el.value !== "" ? Math.min(f.max, Math.max(f.min, n)) : base[f.key];
+        } else {
+          values[f.key] = el.value;
+        }
+      });
+      return values;
+    }
+
+    function getCropFillDesign(cropName) {
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (crop && crop.fillDesign) {
+        return { ...CT.DEFAULT_FILL, ...crop.fillDesign };
+      }
+      const key = String((crop && crop.fillType) || cropName || "").toUpperCase();
+      const presetKey = CT.FILL_PRESETS[key] ? key : String(cropName || "").toUpperCase();
+      return CT.getFillPreset(presetKey, getCropTextureDesign(cropName));
+    }
+
+    function getCropStrawDesign(cropName) {
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (crop && crop.strawDesign) {
+        return { ...CT.DEFAULT_STRAW, ...crop.strawDesign };
+      }
+      return CT.getStrawPreset(String(cropName || "").toUpperCase(), getCropTextureDesign(cropName));
+    }
+
+    function getFillFolder() {
+      const folder = document.getElementById("texFillFolder").value.trim().replace(/\\/g, "/");
+      return folder && !folder.endsWith("/") ? `${folder}/` : folder;
+    }
+
+    // File base names follow the base game's style: lowercase fill type, "Straw" suffix for straw.
+    function getFillFileBase(crop, straw) {
+      const base = String((crop && (crop.fillType || crop.name)) || "crop").toLowerCase();
+      return straw ? `${base}Straw` : base;
+    }
+
+    function getCustomStrawFillTypeName(crop) {
+      return `${String(crop.fillType || crop.name).toUpperCase()}_STRAW`;
+    }
+
+    function updateWindrowNote() {
+      const { crop } = getSelectedTexCrop();
+      const note = document.getElementById("texWindrowNote");
+      if (!crop) {
+        note.textContent = "";
+        return;
+      }
+      if (!crop.windrow) {
+        note.textContent = "This crop has no windrow. Set Has Windrow to true when adding the crop to use straw.";
+      } else if (crop.windrowFillType === "CUSTOM") {
+        note.textContent = `Adds a ${getCustomStrawFillTypeName(crop)} fill type to maps_fillTypes.xml that uses these textures.`;
+      } else {
+        note.textContent = "Windrows use the base-game STRAW fill type and its textures. The designer below is only needed for this crop's own straw.";
+      }
+    }
+
+    function loadFillControls() {
+      const { cropName, crop } = getSelectedTexCrop();
+      loadSmallFields("tf", FILL_FIELDS, getCropFillDesign(cropName));
+      loadSmallFields("ts", STRAW_FIELDS, getCropStrawDesign(cropName));
+      document.getElementById("texWindrowType").value = crop && crop.windrowFillType === "CUSTOM" ? "CUSTOM" : "STRAW";
+      updateWindrowNote();
+    }
+
+    function drawTiledPreview(canvasId, maps) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext("2d");
+      const half = canvas.width / 2;
+      // Four copies show whether the texture tiles cleanly.
+      [[0, 0], [half, 0], [0, half], [half, half]].forEach(([x, y]) => ctx.drawImage(maps.diffuse, x, y, half, half));
+    }
+
+    function renderFillPreviews() {
+      const { cropName } = getSelectedTexCrop();
+      const resolution = Math.min(512, Number(document.getElementById("texResolution").value) || 512);
+      drawTiledPreview("texFillCanvas", CT.generateFillPlaneMaps(getCropFillDesign(cropName), resolution, `${cropName}:fill`));
+      drawTiledPreview("texStrawCanvas", CT.generateFillPlaneMaps({ ...getCropStrawDesign(cropName), material: "strands" }, resolution, `${cropName}:straw`));
+    }
+
+    let fillPreviewTimer = 0;
+    function scheduleFillPreview() {
+      clearTimeout(fillPreviewTimer);
+      if (!document.getElementById("tab-textures").classList.contains("active")) {
+        return;
+      }
+      fillPreviewTimer = setTimeout(renderFillPreviews, 250);
+    }
+
+    async function buildFillFiles(straw) {
+      const { cropName, crop } = getSelectedTexCrop();
+      const format = document.getElementById("texFormat").value;
+      const resolution = Number(document.getElementById("texResolution").value) || 512;
+      const design = straw ? { ...getCropStrawDesign(cropName), material: "strands" } : getCropFillDesign(cropName);
+      const maps = CT.generateFillPlaneMaps(design, resolution, `${cropName}:${straw ? "straw" : "fill"}`);
+      const base = getFillFileBase(crop, straw);
+      const entries = [
+        [`${base}_diffuse`, maps.diffuse],
+        [`${base}_normal`, maps.normal],
+        [`${base}_height`, maps.height],
+        [`${base}_displacement`, maps.displacement],
+        [`distance/${base}Distance_diffuse`, maps.distance]
+      ];
+      const files = [];
+      for (const [name, canvas] of entries) {
+        if (format === "png") {
+          files.push({ name: `${name}.png`, bytes: await canvasToPngBytes(canvas) });
+        } else {
+          const dds = { "dds-bc3": "BC3", "dds-bc1": "BC1", "dds-rgba": "RGBA" }[format];
+          files.push({ name: `${name}.dds`, bytes: CT.encodeDds(canvas, dds, true) });
+        }
+      }
+      return { files, base };
+    }
+
+    async function downloadFillTextures(straw) {
+      setExportStatus(straw ? "Encoding straw textures…" : "Encoding fill plane textures…");
+      await new Promise((r) => setTimeout(r, 20));
+      const { files, base } = await buildFillFiles(straw);
+      downloadZip(`${base}_fillPlane.zip`, files);
+      setExportStatus(`Saved ${files.length} files for ${base}.`);
+    }
+
+    function onFillFieldInput() {
+      const { cropName, crop } = getSelectedTexCrop();
+      if (crop) {
+        crop.fillDesign = readSmallFields("tf", FILL_FIELDS, getCropFillDesign(cropName));
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      scheduleFillPreview();
+    }
+
+    function onStrawFieldInput() {
+      const { cropName, crop } = getSelectedTexCrop();
+      if (crop) {
+        crop.strawDesign = readSmallFields("ts", STRAW_FIELDS, getCropStrawDesign(cropName));
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      scheduleFillPreview();
+    }
+
+    buildSmallFields("texFillFields", "tf", FILL_FIELDS, onFillFieldInput);
+    buildSmallFields("texStrawFields", "ts", STRAW_FIELDS, onStrawFieldInput);
+
+    try {
+      const savedFolder = localStorage.getItem(FILL_FOLDER_KEY);
+      if (savedFolder !== null) {
+        document.getElementById("texFillFolder").value = savedFolder;
+      }
+    } catch (error) {
+      // Storage unavailable; keep the default folder.
+    }
+
+    document.getElementById("texFillFolder").addEventListener("input", (event) => {
+      try {
+        localStorage.setItem(FILL_FOLDER_KEY, event.target.value);
+      } catch (error) {
+        // Storage unavailable; the folder still applies for this session.
+      }
+      updateGeneratedXml(false);
+    });
+
+    document.getElementById("texWindrowType").addEventListener("change", (event) => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        crop.windrowFillType = event.target.value;
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      updateWindrowNote();
+    });
+
+    document.getElementById("texFillResetBtn").addEventListener("click", () => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        delete crop.fillDesign;
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      loadFillControls();
+      scheduleFillPreview();
+    });
+
+    document.getElementById("texStrawResetBtn").addEventListener("click", () => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        delete crop.strawDesign;
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      loadFillControls();
+      scheduleFillPreview();
+    });
+
+    document.getElementById("texFillDownloadBtn").addEventListener("click", () => downloadFillTextures(false));
+    document.getElementById("texStrawDownloadBtn").addEventListener("click", () => downloadFillTextures(true));
 
     document.getElementById("addCropBtn").addEventListener("click", addCrop);
     document.getElementById("clearBtn").addEventListener("click", clearForm);
@@ -2568,6 +2948,7 @@
         document.getElementById("tab-textures").classList.toggle("active", tab === "textures");
         if (tab === "textures") {
           scheduleTexturePreview(false);
+          scheduleFillPreview();
         }
       });
     });

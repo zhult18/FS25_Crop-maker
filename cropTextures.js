@@ -1078,8 +1078,9 @@
   // Normal map
   // ---------------------------------------------------------------------------
 
-  // Tangent-space normal map from the diffuse: height comes from coverage and brightness.
-  function generateNormalMap(source, strength = 2.5) {
+  // Tangent-space normal map. From a foliage diffuse, height comes from coverage and brightness;
+  // with fromHeight, source is a grayscale height map.
+  function generateNormalMap(source, strength = 2.5, fromHeight = false) {
     const W = source.width;
     const H = source.height;
     const src = source.getContext("2d").getImageData(0, 0, W, H).data;
@@ -1087,7 +1088,7 @@
     for (let i = 0; i < W * H; i++) {
       const a = src[i * 4 + 3] / 255;
       const lum = (src[i * 4] * 0.3 + src[i * 4 + 1] * 0.59 + src[i * 4 + 2] * 0.11) / 255;
-      height[i] = a * (0.55 + 0.45 * lum);
+      height[i] = fromHeight ? lum : a * (0.55 + 0.45 * lum);
     }
     const out = document.createElement("canvas");
     out.width = W;
@@ -1111,11 +1112,482 @@
         dst[i] = Math.round((nx * 0.5 + 0.5) * 255);
         dst[i + 1] = Math.round((ny * 0.5 + 0.5) * 255);
         dst[i + 2] = Math.round((nz * 0.5 + 0.5) * 255);
-        dst[i + 3] = src[i + 3];
+        dst[i + 3] = fromHeight ? 255 : src[i + 3];
       }
     }
     octx.putImageData(img, 0, 0);
     return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Fill planes (top-down, tiling textures of the harvested material and of straw for windrows)
+  // ---------------------------------------------------------------------------
+
+  // material: kernels | seeds | beans | tubers | roots | fluff | leafy | strands
+  // size is the particle size in cm, unitSize the meters one texture tile covers (the fillType unitSize).
+  const DEFAULT_FILL = {
+    material: "kernels",
+    unitSize: 0.5,
+    size: 0.7,
+    elongation: 2.2,
+    color: "#c69c48",
+    color2: "#8a6a30",
+    variation: 0.12,
+    accent: 0
+  };
+
+  const DEFAULT_STRAW = {
+    material: "strands",
+    unitSize: 1.25,
+    size: 18,
+    elongation: 0.03,
+    color: "#d2b878",
+    color2: "#9a8450",
+    variation: 0.15,
+    accent: 0.25
+  };
+
+  function fill(material, size, elongation, color, color2, accent = 0, unitSize = 0.5, variation = 0.12) {
+    return { material, size, elongation, color, color2, accent, unitSize, variation };
+  }
+
+  // Harvested-product look per crop. accent adds speckles (pinto), eyes (navy, cowpea) or stripes (sunflower).
+  const FILL_PRESETS = {
+    WHEAT: fill("kernels", 0.65, 2.0, "#c69c48", "#8a6a30"),
+    BARLEY: fill("kernels", 0.85, 2.6, "#d8c28a", "#a08850"),
+    OAT: fill("kernels", 1.0, 3.2, "#dcd2a2", "#a89a68"),
+    RICE: fill("kernels", 0.8, 2.6, "#d2b25c", "#9a7a3a"),
+    RICELONGGRAIN: fill("kernels", 0.95, 3.4, "#d6bb6c", "#9a803e"),
+    SORGHUM: fill("seeds", 0.45, 1.05, "#b5602e", "#6a3a1e"),
+    MAIZE: fill("kernels", 1.0, 1.1, "#e8b020", "#c07818", 0.2, 0.6),
+    SUNFLOWER: fill("kernels", 1.0, 2.0, "#2e2a26", "#d8d4c8", 0.6, 0.6),
+    CANOLA: fill("seeds", 0.2, 1.0, "#2a1e18", "#5a3a28", 0, 0.4),
+    SOYBEAN: fill("seeds", 0.75, 1.1, "#d8c28a", "#8a6a3a", 0.15),
+    GREENBEAN: fill("roots", 10, 0.12, "#6e9a3e", "#4e7a2e", 0, 1.2),
+    PEA: fill("seeds", 0.8, 1.0, "#88b050", "#5a8030", 0, 0.5),
+    COTTON: fill("fluff", 7, 1.0, "#f4f1ea", "#b0a898", 0.1, 1),
+    POTATO: fill("tubers", 7, 1.35, "#c8a068", "#7a5a38", 0.3, 2),
+    SUGARBEET: fill("tubers", 14, 1.6, "#e0d4b8", "#9a8a68", 0.2, 3),
+    BEETROOT: fill("tubers", 7, 1.1, "#6a1a2a", "#3a0a18", 0.2, 2),
+    CARROT: fill("roots", 16, 0.2, "#e8701a", "#a84a10", 0.2, 1.2),
+    PARSNIP: fill("roots", 18, 0.24, "#e8dcb8", "#a89870", 0.2, 1.2),
+    SPINACH: fill("leafy", 6, 0.6, "#2f5e2a", "#4e7e3a", 0, 1.5),
+    GRASS: fill("strands", 20, 0.04, "#5f9a3a", "#3f7a2a", 0.2, 1, 0.2),
+    OILSEEDRADISH: fill("seeds", 0.3, 1.0, "#8a5a3a", "#4a2a1a", 0, 0.4),
+    SUGARCANE: fill("roots", 25, 0.12, "#8c9a4a", "#5a6a2a", 0.4, 3),
+    // US crops
+    DURUM: fill("kernels", 0.8, 2.2, "#d9b25a", "#a07a30"),
+    HRWWHEAT: fill("kernels", 0.65, 1.9, "#b9804a", "#7a502a"),
+    SRWWHEAT: fill("kernels", 0.65, 1.9, "#b07044", "#744626"),
+    WHITEWHEAT: fill("kernels", 0.65, 1.9, "#dcc890", "#a89060"),
+    HRSWHEAT: fill("kernels", 0.65, 2.0, "#c08a4c", "#80582c"),
+    SPELT: fill("kernels", 1.0, 2.6, "#b98a58", "#80603a"),
+    RYE: fill("kernels", 0.8, 3.0, "#8a8a70", "#5a5a48"),
+    TRITICALE: fill("kernels", 0.85, 2.4, "#b8905a", "#7a603a"),
+    REDOAT: fill("kernels", 1.0, 3.2, "#a8643a", "#6a3a22"),
+    PROSOMILLET: fill("seeds", 0.3, 1.2, "#e0c070", "#b08a40"),
+    PEARLMILLET: fill("seeds", 0.35, 1.1, "#a8a08a", "#6a6a5a"),
+    WILDRICE: fill("kernels", 1.3, 5, "#3a2a1e", "#6a5038"),
+    TEFF: fill("seeds", 0.12, 1.0, "#b89a70", "#806040", 0, 0.3),
+    SWEETCORN: fill("kernels", 1.0, 1.1, "#f2d860", "#d8b840", 0.1, 0.6),
+    POPCORN: fill("seeds", 0.6, 1.2, "#f0b830", "#c08018", 0.1, 0.5),
+    BROOMCORN: fill("seeds", 0.4, 1.1, "#9a5a30", "#5a3018"),
+    HEMP: fill("seeds", 0.4, 1.2, "#8a7a5a", "#4a4030", 0.4, 0.4),
+    CONFECTIONSUNFLOWER: fill("kernels", 1.5, 2.2, "#3a3430", "#e8e4d8", 0.8, 0.8),
+    SAFFLOWER: fill("seeds", 0.6, 1.4, "#ece8dc", "#b0a890", 0, 0.5),
+    FLAX: fill("seeds", 0.4, 1.8, "#8a4a24", "#c07a40", 0, 0.4),
+    CAMELINA: fill("seeds", 0.15, 1.3, "#c08030", "#8a5020", 0, 0.3),
+    MUSTARD: fill("seeds", 0.2, 1.0, "#d8a830", "#8a6a20", 0, 0.3),
+    BUCKWHEAT: fill("seeds", 0.5, 1.2, "#3a2a22", "#6a5040", 0, 0.4),
+    TOBACCO: fill("leafy", 18, 0.5, "#c89a40", "#8a6020", 0.2, 2),
+    PINTOBEAN: fill("beans", 1.2, 1.5, "#dcc49a", "#8a5a3a", 0.7),
+    NAVYBEAN: fill("beans", 0.9, 1.3, "#f2eee2", "#c0b8a0", 0.1),
+    BLACKBEAN: fill("beans", 1.0, 1.4, "#1e1a1c", "#4a4448"),
+    KIDNEYBEAN: fill("beans", 1.6, 1.8, "#7a1e22", "#4a0e12"),
+    COWPEA: fill("beans", 0.9, 1.3, "#ece4d0", "#1e1a18", 0.6),
+    CHICKPEA: fill("seeds", 0.9, 1.05, "#dcbe88", "#a08050", 0.2),
+    LENTIL: fill("seeds", 0.5, 1.0, "#8a7a4a", "#5a4a2a", 0.1, 0.4),
+    DRYPEA: fill("seeds", 0.75, 1.0, "#e0c860", "#a89040", 0.1, 0.5),
+    ALFALFA: fill("leafy", 3, 0.35, "#4f8a3a", "#6fa04a", 0.1, 1),
+    CLOVER: fill("leafy", 2.5, 0.8, "#4f8a3a", "#d85a8a", 0.2, 1),
+    PEPPERMINT: fill("leafy", 4, 0.55, "#3f6f34", "#5f8f44", 0, 1),
+    ONION: fill("tubers", 7, 1.0, "#c89048", "#8a5a28", 0.4, 2),
+    GARLIC: fill("tubers", 5, 1.0, "#ece4d8", "#b8a898", 0.4, 1.5),
+    LETTUCE: fill("leafy", 12, 0.8, "#6fae3e", "#b8d890", 0.2, 2),
+    CABBAGE: fill("tubers", 16, 1.0, "#8ab08a", "#d0e4d0", 0.3, 3),
+    PEANUT: fill("beans", 3.5, 2.2, "#c8a878", "#8a6a48", 0.4, 1),
+    SWEETPOTATO: fill("roots", 14, 0.4, "#b85a3a", "#7a3a22", 0.2, 1.4),
+    PUMPKIN: fill("tubers", 30, 0.85, "#e07818", "#a04a0a", 0.3, 4),
+    WATERMELON: fill("tubers", 28, 1.4, "#2f5a2a", "#8ab060", 0.6, 4),
+    TOMATO: fill("tubers", 6, 0.95, "#d8301a", "#8a1a0a", 0.1, 1.5),
+    CHILEPEPPER: fill("roots", 12, 0.22, "#c8201a", "#6a1a0a", 0.1, 1.5),
+    PIMACOTTON: fill("fluff", 7, 1.0, "#fbf6e8", "#c0b8a0", 0.1, 1),
+    TIMOTHY: fill("strands", 22, 0.04, "#8aa060", "#5f7f40", 0.2, 1, 0.2),
+    SORGHUMSUDAN: fill("strands", 20, 0.06, "#6a9a3a", "#4a7a2a", 0.2, 1, 0.2),
+    SWITCHGRASS: fill("strands", 24, 0.04, "#c0a878", "#8a7a50", 0.2, 1.25, 0.2)
+  };
+
+  // Straw (windrow) look for crops whose straw differs noticeably from wheat straw.
+  const STRAW_PRESETS = {
+    BARLEY: { color: "#dcc890", color2: "#a89060" },
+    OAT: { color: "#d8cc98", color2: "#a09460" },
+    RYE: { color: "#c0aa78", color2: "#8a7a50", size: 24 },
+    DURUM: { color: "#d8bc78", color2: "#a08850" },
+    RICE: { color: "#c0aa60", color2: "#8a7a40" },
+    RICELONGGRAIN: { color: "#c0aa60", color2: "#8a7a40" },
+    CANOLA: { color: "#8a7650", color2: "#5a4a30", size: 14, elongation: 0.06 },
+    MUSTARD: { color: "#9a8458", color2: "#6a5a38", size: 14, elongation: 0.06 },
+    SOYBEAN: { color: "#8a6a44", color2: "#5a4028", size: 10, elongation: 0.08 },
+    HEMP: { color: "#b8a070", color2: "#6a5a38", size: 40, elongation: 0.025 },
+    FLAX: { color: "#c8a860", color2: "#8a7040", size: 30, elongation: 0.015 },
+    SPELT: { color: "#c8aa70", color2: "#8a7448" }
+  };
+
+  function getFillPreset(key, design) {
+    if (FILL_PRESETS[key]) {
+      return { ...DEFAULT_FILL, ...FILL_PRESETS[key] };
+    }
+    // Unknown crop: kernels in the ripe head color.
+    const d = normalizeDesign(design);
+    return { ...DEFAULT_FILL, color: d.headRipe, color2: shadeHex(d.headRipe, -0.3) };
+  }
+
+  function getStrawPreset(key, design) {
+    const d = normalizeDesign(design);
+    const base = { ...DEFAULT_STRAW, color: lerpHex(d.stemRipe, "#e0cc90", 0.35), color2: shadeHex(d.leafRipe, -0.1) };
+    return STRAW_PRESETS[key] ? { ...base, ...STRAW_PRESETS[key] } : base;
+  }
+
+  // Draws one particle into the diffuse (ctx) and height (hctx) layers.
+  function drawFillParticle(ctx, hctx, p, f, sizePx, rng, depthShade, heightLevel) {
+    const color = shadeHex(lerpHex(f.color, f.color2, rng() * f.variation * 2), depthShade + (rng() - 0.5) * f.variation);
+    const hv = Math.round(40 + 215 * heightLevel);
+    const heightFill = (r) => {
+      const g = hctx.createRadialGradient(0, 0, 0, 0, 0, r);
+      g.addColorStop(0, `rgb(${hv},${hv},${hv})`);
+      g.addColorStop(1, `rgb(${Math.round(hv * 0.35)},${Math.round(hv * 0.35)},${Math.round(hv * 0.35)})`);
+      return g;
+    };
+    const shaded = (r, c) => {
+      const g = ctx.createRadialGradient(-r * 0.35, -r * 0.35, r * 0.05, 0, 0, r * 1.05);
+      g.addColorStop(0, shadeHex(c, 0.28));
+      g.addColorStop(0.55, c);
+      g.addColorStop(1, shadeHex(c, -0.35));
+      return g;
+    };
+    const both = (fn) => {
+      [ctx, hctx].forEach((c) => {
+        c.save();
+        c.translate(p.x, p.y);
+        c.rotate(p.a);
+        fn(c, c === hctx);
+        c.restore();
+      });
+    };
+    const s = sizePx * (0.8 + rng() * 0.4);
+
+    switch (f.material) {
+      case "kernels":
+      case "seeds": {
+        const rx = (s * (f.material === "seeds" ? f.elongation : f.elongation)) / 2;
+        const ry = s / 2;
+        const stripe = f.accent > 0 && rng() < f.accent;
+        both((c, isH) => {
+          c.fillStyle = isH ? heightFill(Math.max(rx, ry)) : shaded(Math.max(rx, ry), color);
+          c.beginPath();
+          c.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+          c.fill();
+          if (isH) {
+            return;
+          }
+          if (f.material === "kernels" && f.elongation > 1.4) {
+            // The crease down the middle of a grain.
+            c.strokeStyle = shadeHex(color, -0.35);
+            c.lineWidth = Math.max(0.4, ry * 0.18);
+            c.beginPath();
+            c.moveTo(-rx * 0.7, 0);
+            c.lineTo(rx * 0.7, 0);
+            c.stroke();
+          }
+          if (stripe) {
+            c.strokeStyle = f.color2;
+            c.lineWidth = Math.max(0.4, ry * 0.2);
+            [-0.45, 0, 0.45].forEach((o) => {
+              c.beginPath();
+              c.moveTo(-rx * 0.8, ry * o);
+              c.lineTo(rx * 0.8, ry * o);
+              c.stroke();
+            });
+          }
+        });
+        return;
+      }
+      case "beans": {
+        const rx = (s * f.elongation) / 2;
+        const ry = s / 2;
+        const speckles = f.accent > 0.5;
+        both((c, isH) => {
+          c.fillStyle = isH ? heightFill(rx) : shaded(rx, color);
+          c.beginPath();
+          // Kidney outline: flatter along one side.
+          c.moveTo(-rx, 0);
+          c.bezierCurveTo(-rx, -ry * 1.3, rx, -ry * 1.3, rx, 0);
+          c.bezierCurveTo(rx, ry * 1.1, rx * 0.2, ry * 0.7, 0, ry * 0.75);
+          c.bezierCurveTo(-rx * 0.2, ry * 0.7, -rx, ry * 1.1, -rx, 0);
+          c.fill();
+          if (isH || f.accent <= 0) {
+            return;
+          }
+          c.fillStyle = f.color2;
+          if (speckles) {
+            for (let i = 0; i < 7; i++) {
+              c.beginPath();
+              c.ellipse((rng() - 0.5) * rx * 1.5, (rng() - 0.6) * ry, rx * 0.18, ry * 0.12, rng() * 3, 0, Math.PI * 2);
+              c.fill();
+            }
+          } else {
+            c.beginPath();
+            c.ellipse(0, ry * 0.55, rx * 0.22, ry * 0.16, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+        });
+        return;
+      }
+      case "tubers": {
+        const rx = (s * f.elongation) / 2;
+        const ry = s / 2;
+        const bumps = [];
+        for (let i = 0; i < 9; i++) {
+          bumps.push(0.88 + rng() * 0.2);
+        }
+        const outline = (c) => {
+          c.beginPath();
+          for (let i = 0; i <= 36; i++) {
+            const t = (i / 36) * Math.PI * 2;
+            const k = bumps[Math.floor((i / 36) * 9) % 9];
+            const x = Math.cos(t) * rx * k;
+            const y = Math.sin(t) * ry * k;
+            if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+          }
+          c.closePath();
+        };
+        both((c, isH) => {
+          c.fillStyle = isH ? heightFill(Math.max(rx, ry)) : shaded(Math.max(rx, ry), color);
+          outline(c);
+          c.fill();
+          if (isH || f.accent <= 0) {
+            return;
+          }
+          // Eyes, skin marks or rind stripes.
+          c.fillStyle = shadeHex(f.color2, -0.1);
+          c.globalAlpha = 0.6;
+          const marks = Math.round(3 + f.accent * 10);
+          for (let i = 0; i < marks; i++) {
+            c.beginPath();
+            c.ellipse((rng() - 0.5) * rx * 1.4, (rng() - 0.5) * ry * 1.4, Math.max(0.6, rx * 0.06), Math.max(0.5, ry * 0.05), rng() * 3, 0, Math.PI * 2);
+            c.fill();
+          }
+          c.globalAlpha = 1;
+        });
+        return;
+      }
+      case "roots": {
+        const len = s;
+        const w = Math.max(1, s * f.elongation);
+        both((c, isH) => {
+          c.fillStyle = isH ? heightFill(len / 2) : (() => {
+            const g = c.createLinearGradient(0, -w / 2, 0, w / 2);
+            g.addColorStop(0, shadeHex(color, 0.25));
+            g.addColorStop(0.5, color);
+            g.addColorStop(1, shadeHex(color, -0.35));
+            return g;
+          })();
+          c.beginPath();
+          c.moveTo(-len / 2, -w / 2);
+          c.quadraticCurveTo(-len / 2 - w * 0.4, 0, -len / 2, w / 2);
+          c.quadraticCurveTo(0, w * 0.45, len / 2, w * 0.12);
+          c.lineTo(len / 2, -w * 0.12);
+          c.quadraticCurveTo(0, -w * 0.45, -len / 2, -w / 2);
+          c.fill();
+          if (isH || f.accent <= 0) {
+            return;
+          }
+          c.strokeStyle = shadeHex(color, -0.25);
+          c.lineWidth = Math.max(0.4, w * 0.06);
+          const rings = Math.round(4 + f.accent * 8);
+          for (let i = 1; i < rings; i++) {
+            const x = -len / 2 + (i / rings) * len;
+            const hw = (w / 2) * (1 - (i / rings) * 0.85);
+            c.beginPath();
+            c.moveTo(x, -hw);
+            c.lineTo(x + w * 0.05, hw);
+            c.stroke();
+          }
+        });
+        return;
+      }
+      case "fluff": {
+        const r = s / 2;
+        both((c, isH) => {
+          for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + rng();
+            const d = r * 0.45 * rng();
+            const lr = r * (0.45 + rng() * 0.25);
+            // Lint scatters light, so tufts shade softly instead of darkening at the edges.
+            const soft = c.createRadialGradient(-lr * 0.3, -lr * 0.3, lr * 0.1, 0, 0, lr);
+            soft.addColorStop(0, "#ffffff");
+            soft.addColorStop(1, shadeHex(color, -0.12 + (rng() - 0.5) * 0.06));
+            c.fillStyle = isH ? heightFill(lr) : soft;
+            c.beginPath();
+            c.arc(Math.cos(a) * d, Math.sin(a) * d, lr, 0, Math.PI * 2);
+            c.fill();
+          }
+          if (!isH && f.accent > 0 && rng() < f.accent) {
+            c.fillStyle = shadeHex(f.color2, -0.4);
+            c.beginPath();
+            c.ellipse(0, 0, r * 0.12, r * 0.08, 0, 0, Math.PI * 2);
+            c.fill();
+          }
+        });
+        return;
+      }
+      case "leafy": {
+        const len = s;
+        const w = Math.max(1, s * f.elongation);
+        const accentLeaf = f.accent > 0 && rng() < f.accent;
+        const c0 = accentLeaf ? shadeHex(f.color2, depthShade) : color;
+        both((c, isH) => {
+          c.fillStyle = isH ? heightFill(len / 2) : (() => {
+            const g = c.createLinearGradient(0, -w / 2, 0, w / 2);
+            g.addColorStop(0, shadeHex(c0, 0.2));
+            g.addColorStop(1, shadeHex(c0, -0.3));
+            return g;
+          })();
+          c.beginPath();
+          c.moveTo(-len / 2, 0);
+          c.bezierCurveTo(-len * 0.2, -w * 0.7, len * 0.2, -w * 0.6, len / 2, 0);
+          c.bezierCurveTo(len * 0.2, w * 0.6, -len * 0.2, w * 0.7, -len / 2, 0);
+          c.fill();
+          if (!isH) {
+            c.strokeStyle = shadeHex(c0, 0.25);
+            c.globalAlpha = 0.5;
+            c.lineWidth = Math.max(0.4, w * 0.06);
+            c.beginPath();
+            c.moveTo(-len / 2, 0);
+            c.lineTo(len * 0.45, 0);
+            c.stroke();
+            c.globalAlpha = 1;
+          }
+        });
+        return;
+      }
+      case "strands":
+      default: {
+        const len = s;
+        const w = Math.max(0.8, s * f.elongation);
+        const bend = (rng() - 0.5) * len * 0.25;
+        // Some strands are leaf bits in the second color; stalks get a lighter edge and joints.
+        const leafBit = f.accent > 0 && rng() < f.accent * 0.5;
+        const c0 = leafBit ? shadeHex(f.color2, depthShade + (rng() - 0.5) * 0.1) : color;
+        both((c, isH) => {
+          c.strokeStyle = isH ? `rgb(${hv},${hv},${hv})` : c0;
+          c.lineCap = "round";
+          c.lineWidth = leafBit ? w * 1.6 : w;
+          c.beginPath();
+          c.moveTo(-len / 2, 0);
+          c.quadraticCurveTo(0, bend, len / 2, 0);
+          c.stroke();
+          if (isH || leafBit) {
+            return;
+          }
+          c.strokeStyle = shadeHex(c0, 0.3);
+          c.lineWidth = Math.max(0.3, w * 0.3);
+          c.beginPath();
+          c.moveTo(-len / 2, -w * 0.2);
+          c.quadraticCurveTo(0, bend - w * 0.2, len / 2, -w * 0.2);
+          c.stroke();
+          c.fillStyle = shadeHex(c0, -0.25);
+          const knot = (rng() - 0.5) * len * 0.6;
+          c.fillRect(knot, bend * (1 - Math.pow((2 * knot) / len, 2)) * 0.5 - w * 0.6, Math.max(0.8, w * 0.6), w * 1.2);
+        });
+      }
+    }
+  }
+
+  // Generates the fill plane maps for a material: diffuse, normal, height, displacement and a small
+  // distance diffuse. Every map tiles in both directions.
+  function generateFillPlaneMaps(fillDesign, resolution = 512, seedName = "FILL") {
+    const f = { ...DEFAULT_FILL, ...(fillDesign || {}) };
+    const W = resolution;
+    const H = resolution;
+    const rng = makeSeedRng(hashString(`${seedName}:${f.material}`));
+    const sizePx = Math.max(1.5, (f.size / 100 / Math.max(0.05, f.unitSize)) * W);
+
+    const diffuse = document.createElement("canvas");
+    diffuse.width = W;
+    diffuse.height = H;
+    const ctx = diffuse.getContext("2d");
+    const height = document.createElement("canvas");
+    height.width = W;
+    height.height = H;
+    const hctx = height.getContext("2d");
+
+    // Gaps between particles read as shadow.
+    // Fluffy material has soft, light gaps; everything else has deep shadow between pieces.
+    ctx.fillStyle = shadeHex(lerpHex(f.color, f.color2, 0.5), f.material === "fluff" ? -0.25 : -0.55);
+    ctx.fillRect(0, 0, W, H);
+    hctx.fillStyle = "#000000";
+    hctx.fillRect(0, 0, W, H);
+    hctx.globalCompositeOperation = "lighten";
+
+    const isStrand = f.material === "strands";
+    const long = ["roots", "leafy", "strands"].includes(f.material);
+    const particleArea = long
+      ? sizePx * Math.max(1, sizePx * (f.elongation || 0.1))
+      : Math.PI * (sizePx / 2) * (sizePx / 2) * Math.max(1, f.elongation);
+    const count = Math.min(200000, Math.max(40, Math.round((W * H / particleArea) * (isStrand ? 4.5 : f.material === "fluff" ? 3 : 2.4))));
+    const margin = sizePx * Math.max(1, f.elongation) * 0.8 + (long ? sizePx : 0);
+    // Straw lies roughly along one direction, like a swath; loose produce lies every which way.
+    const flow = rng() * Math.PI;
+
+    for (let i = 0; i < count; i++) {
+      const t = i / count;
+      const p = {
+        x: rng() * W,
+        y: rng() * H,
+        a: isStrand ? flow + (rng() - 0.5) * 1.6 : rng() * Math.PI * 2
+      };
+      const depthShade = -0.45 * (1 - t);
+      const seed = Math.floor(rng() * 0xffffffff);
+      const ox = p.x < margin ? [0, W] : p.x > W - margin ? [0, -W] : [0];
+      const oy = p.y < margin ? [0, H] : p.y > H - margin ? [0, -H] : [0];
+      ox.forEach((dx) => oy.forEach((dy) => {
+        // Same seed for wrapped copies so the tile edges match.
+        drawFillParticle(ctx, hctx, { x: p.x + dx, y: p.y + dy, a: p.a }, f, sizePx, makeSeedRng(seed), depthShade, 0.35 + 0.65 * t);
+      }));
+    }
+
+    // Fine grain noise so flat areas don't look plastic.
+    const img = ctx.getImageData(0, 0, W, H);
+    let s = hashString(seedName) || 1;
+    for (let i = 0; i < img.data.length; i += 4) {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      const n = ((s >>> 24) - 128) * 0.06;
+      img.data[i] = Math.max(0, Math.min(255, img.data[i] + n));
+      img.data[i + 1] = Math.max(0, Math.min(255, img.data[i + 1] + n));
+      img.data[i + 2] = Math.max(0, Math.min(255, img.data[i + 2] + n));
+    }
+    ctx.putImageData(img, 0, 0);
+
+    const normal = generateNormalMap(height, isStrand ? 3 : 4, true);
+    const distanceSize = Math.max(32, Math.round(W / 8));
+    const distance = document.createElement("canvas");
+    distance.width = distanceSize;
+    distance.height = distanceSize;
+    const dctx = distance.getContext("2d");
+    dctx.imageSmoothingQuality = "high";
+    dctx.drawImage(diffuse, 0, 0, distanceSize, distanceSize);
+    return { diffuse, normal, height, displacement: height, distance };
   }
 
   // ---------------------------------------------------------------------------
@@ -1434,6 +1906,12 @@
     normalizeDesign,
     generatePlantTexture,
     generateNormalMap,
+    DEFAULT_FILL,
+    DEFAULT_STRAW,
+    FILL_PRESETS,
+    getFillPreset,
+    getStrawPreset,
+    generateFillPlaneMaps,
     encodeDds,
     makeSeedRng,
     lerpHex,
