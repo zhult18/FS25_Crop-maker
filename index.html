@@ -2039,6 +2039,205 @@
 
     const GRAIN_CROP_NAMES = new Set(["WHEAT", "BARLEY", "OAT", "RYE", "SORGHUM", "RICE", "RICELONGGRAIN"]);
 
+    // Side-view head shapes per grain species. Lengths are fractions of texture height.
+    // awn: awn length relative to head length; nod: how far the ripe head bends over (radians);
+    // ripe/awnRipe: head colors at full maturity.
+    const GRAIN_HEAD_SPECS = {
+      BARLEY: { kind: "spike", headLen: 0.085, headW: 0.018, spikelets: 11, awn: 1.9, awnSpread: 0.07, nod: 2.4, ripe: "#dccb93", awnRipe: "#efe4bc" },
+      WHEAT: { kind: "spike", headLen: 0.085, headW: 0.024, spikelets: 10, awn: 0.25, awnSpread: 0.25, nod: 0.3, ripe: "#c9a24a", awnRipe: "#d8b664" },
+      RYE: { kind: "spike", headLen: 0.11, headW: 0.015, spikelets: 14, awn: 0.9, awnSpread: 0.12, nod: 0.9, ripe: "#b9a36a", awnRipe: "#cdb981" },
+      OAT: { kind: "panicle", headLen: 0.14, headW: 0.06, spikelets: 14, nod: 0.5, ripe: "#d9cf9a", awnRipe: "#e6ddb0" },
+      RICE: { kind: "panicle", headLen: 0.13, headW: 0.03, spikelets: 22, nod: 1.3, ripe: "#d2b25c", awnRipe: "#dcc07a" },
+      RICELONGGRAIN: { kind: "panicle", headLen: 0.14, headW: 0.028, spikelets: 24, nod: 1.4, ripe: "#d6bb6c", awnRipe: "#e0c888" },
+      SORGHUM: { kind: "panicle", headLen: 0.1, headW: 0.035, spikelets: 26, nod: 0.2, ripe: "#9b4a2a", awnRipe: "#b0603a" }
+    };
+
+    // Draws a tapered ribbon along a quadratic curve p0 -> p2 (control p1). widthAt(t) gives the full width.
+    function drawRibbon(ctx, p0, p1, p2, widthAt, fill) {
+      const steps = 14;
+      const left = [];
+      const right = [];
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const mt = 1 - t;
+        const x = mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x;
+        const y = mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y;
+        let dx = 2 * mt * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
+        let dy = 2 * mt * (p1.y - p0.y) + 2 * t * (p2.y - p1.y);
+        const len = Math.hypot(dx, dy) || 1;
+        dx /= len;
+        dy /= len;
+        const hw = widthAt(t) / 2;
+        left.push([x - dy * hw, y + dx * hw]);
+        right.push([x + dy * hw, y - dx * hw]);
+      }
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.moveTo(left[0][0], left[0][1]);
+      left.forEach(([x, y]) => ctx.lineTo(x, y));
+      for (let i = right.length - 1; i >= 0; i--) {
+        ctx.lineTo(right[i][0], right[i][1]);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function shadeHex(hex, amount) {
+      return amount >= 0 ? lerpHex(hex, "#ffffff", amount) : lerpHex(hex, "#000000", -amount);
+    }
+
+    // Head drawn in a local frame where the head grows along -y from the origin.
+    function drawGrainHeadSide(ctx, spec, H, headColor, awnColor, px, rng, ripen) {
+      const L = spec.headLen * H * (0.85 + rng() * 0.3);
+      const w = spec.headW * H;
+      const n = spec.spikelets;
+
+      if (spec.kind === "panicle") {
+        ctx.strokeStyle = shadeHex(headColor, -0.15);
+        ctx.lineWidth = Math.max(0.5, 0.8 * px);
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(0, -L);
+        ctx.stroke();
+        for (let i = 0; i < n; i++) {
+          const t = 0.08 + (i / n) * 0.92;
+          const side = i % 2 === 0 ? 1 : -1;
+          const reach = w * (1 - t * 0.6) * (0.6 + rng() * 0.5);
+          const sx = side * reach;
+          const sy = -L * t + reach * 0.9;
+          ctx.beginPath();
+          ctx.moveTo(0, -L * t);
+          ctx.quadraticCurveTo(side * reach * 0.6, -L * t - reach * 0.2, sx, sy);
+          ctx.stroke();
+          ctx.fillStyle = shadeHex(headColor, (rng() - 0.5) * 0.2);
+          ctx.beginPath();
+          ctx.ellipse(sx, sy + 2 * px, w * 0.14, w * 0.3, side * 0.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        return;
+      }
+
+      const step = L / n;
+      // Awns first so the kernels sit on top of them.
+      if (spec.awn > 0) {
+        ctx.strokeStyle = awnColor;
+        ctx.lineWidth = Math.max(0.4, 0.55 * px);
+        ctx.globalAlpha *= 0.9;
+        for (let i = 0; i < n; i++) {
+          const y = -i * step - step;
+          [-1, 1].forEach((side) => {
+            const awnLen = L * spec.awn * (0.8 + rng() * 0.35) * (0.7 + 0.3 * (i / n));
+            // Awns splay outward as the head dries.
+            const spread = spec.awnSpread * (0.6 + rng() * 0.8) * (1 + ripen * 1.5);
+            ctx.beginPath();
+            ctx.moveTo(side * w * 0.3, y);
+            ctx.lineTo(side * (w * 0.3 + Math.sin(spread) * awnLen), y - Math.cos(spread) * awnLen);
+            ctx.stroke();
+          });
+        }
+        ctx.globalAlpha /= 0.9;
+      }
+      for (let i = 0; i < n; i++) {
+        const y = -i * step - step * 0.5;
+        const taper = i > n - 3 ? 0.75 : 1;
+        [-1, 1].forEach((side) => {
+          ctx.fillStyle = shadeHex(headColor, side > 0 ? 0.08 : -0.08 + (rng() - 0.5) * 0.1);
+          ctx.beginPath();
+          ctx.ellipse(side * w * 0.26 * taper, y - side * step * 0.25, w * 0.3 * taper, step * 0.75, side * 0.35, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+    }
+
+    function drawGrainPlantSide(ctx, x, opts) {
+      const { H, px, g, ripen, spec, colors, rng, depth } = opts;
+      const dark = -0.28 * (1 - depth);
+      const leafGreen = shadeHex(lerpHex(colors.tip, "#cdb47a", ripen), dark);
+      const stemGreen = shadeHex(lerpHex(colors.base, "#c2a868", ripen), dark);
+      const headGreen = lerpHex("#8fb35a", "#a9bf6a", g);
+      const headColor = shadeHex(spec ? lerpHex(headGreen, spec.ripe, ripen) : headGreen, dark);
+      const awnColor = shadeHex(spec ? lerpHex(lerpHex(headGreen, "#ffffff", 0.2), spec.awnRipe, ripen) : headGreen, dark);
+
+      const heightVar = 0.78 + rng() * 0.27;
+      const stemH = H * (0.12 + 0.6 * g) * heightVar;
+      const headed = spec && g >= 0.55;
+      const tillers = 1 + Math.floor(rng() * 2) + Math.floor(g * 2);
+
+      for (let s = 0; s < tillers; s++) {
+        const lean = (rng() - 0.5) * 0.35 + (s - (tillers - 1) / 2) * 0.12;
+        const h = stemH * (0.9 + rng() * 0.15);
+        const base = { x: x + (rng() - 0.5) * 6 * px, y: H + 2 * px };
+        const top = { x: base.x + Math.sin(lean) * h, y: base.y - Math.cos(lean) * h };
+        const ctrl = { x: base.x + Math.sin(lean) * h * 0.3, y: base.y - h * 0.5 };
+
+        // Leaves: early growth fans from the ground, later they sheath up the stem.
+        // Lower leaves wither away as the crop ripens.
+        const leafCount = Math.max(1, Math.round((2 + Math.floor(g * 3) + Math.floor(rng() * 2)) * (1 - ripen * 0.5)));
+        for (let l = 0; l < leafCount; l++) {
+          const at = g < 0.4 ? 0 : Math.min(0.85, ((l + rng() * 0.9) / leafCount) * 0.8);
+          const ax = base.x + (top.x - base.x) * at;
+          const ay = base.y + (top.y - base.y) * at;
+          const side = rng() < 0.5 ? -1 : 1;
+          const leafLen = H * (0.1 + 0.16 * g) * (0.6 + rng() * 0.6) * (1 - at * 0.45) * (1 - ripen * 0.35);
+          const rise = leafLen * (0.25 + rng() * 0.75) * (1 - ripen * 0.4);
+          const tip = { x: ax + side * leafLen * (0.45 + rng() * 0.5), y: ay - rise + leafLen * (rng() * 0.35 + ripen * 0.35) };
+          const lc = { x: ax + side * leafLen * (0.15 + rng() * 0.25), y: ay - rise * (1.05 + rng() * 0.35) };
+          const lw = H * 0.009 * (0.8 + g * 0.4);
+          drawRibbon(ctx, { x: ax, y: ay }, lc, tip, (t) => lw * (t < 0.15 ? 0.6 + t * 2.6 : (1 - t) / 0.85), shadeHex(leafGreen, (rng() - 0.5) * 0.12));
+        }
+
+        // Stems stay hidden in the leaf sheaths until elongation.
+        if (g >= 0.45) {
+          const sw = Math.max(1, H * 0.0045);
+          drawRibbon(ctx, base, ctrl, top, (t) => sw * (1 - t * 0.35), stemGreen);
+        }
+
+        if (headed) {
+          const emerge = Math.min(1, (g - 0.55) / 0.2);
+          const sideN = lean >= 0 ? 1 : -1;
+          const nod = spec.nod * ripen * (0.45 + rng() * 0.75);
+          const stemAngle = lean;
+          const headAngle = stemAngle + sideN * nod;
+          // Neck curves from the stem direction into the (possibly drooping) head direction.
+          const neckLen = h * (0.07 + 0.05 * ripen * Math.min(1, spec.nod / 2));
+          const nc = { x: top.x + Math.sin(stemAngle) * neckLen, y: top.y - Math.cos(stemAngle) * neckLen };
+          const hb = { x: nc.x + Math.sin(headAngle) * neckLen * 0.6, y: nc.y - Math.cos(headAngle) * neckLen * 0.6 };
+          drawRibbon(ctx, top, nc, hb, () => Math.max(0.8, H * 0.0035), stemGreen);
+
+          ctx.save();
+          ctx.translate(hb.x, hb.y);
+          ctx.rotate(headAngle);
+          ctx.scale(emerge, emerge);
+          drawGrainHeadSide(ctx, spec, H, headColor, awnColor, px, rng, ripen);
+          ctx.restore();
+        }
+      }
+    }
+
+    // Side-view (billboard) texture: plants stand on the bottom edge and wrap horizontally so it tiles.
+    function generateGrainSideTexture(ctx, W, H, cropName, g, colors, rng) {
+      const px = H / 512;
+      const spec = GRAIN_HEAD_SPECS[String(cropName).toUpperCase()] || null;
+      const ripen = Math.max(0, Math.min(1, (g - 0.7) / 0.3));
+      const count = Math.round((10 + g * 12) * (W / H));
+      const plants = [];
+      for (let i = 0; i < count; i++) {
+        plants.push({ x: ((i + rng()) / count) * W, depth: rng(), seed: Math.floor(rng() * 0xffffffff) });
+      }
+      plants.sort((a, b) => a.depth - b.depth);
+      const margin = W * 0.3;
+      plants.forEach((p) => {
+        [0, -W, W].forEach((offset) => {
+          const x = p.x + offset;
+          if (x < -margin || x > W + margin) {
+            return;
+          }
+          // Re-seed per plant so wrapped copies are identical.
+          drawGrainPlantSide(ctx, x, { H, px, g, ripen, spec, colors, rng: makeSeedRng(p.seed), depth: p.depth });
+        });
+      });
+    }
+
     function generateCropTexture(canvas, options) {
       const {
         cropName = "DEFAULT",
@@ -2083,6 +2282,11 @@
         rngSeed = ((rngSeed * 31) + cropName.charCodeAt(i)) >>> 0;
       }
       const rng = makeSeedRng(rngSeed);
+
+      if (style === "grain") {
+        generateGrainSideTexture(ctx, W, H, cropName, growthFactor, colors, rng);
+        return;
+      }
 
       for (let gx = 0; gx < gridCount; gx++) {
         for (let gy = 0; gy < gridCount; gy++) {
