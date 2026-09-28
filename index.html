@@ -767,22 +767,43 @@
               </div>
             </div>
             <div class="span-6">
-              <h3 class="tex-sub">Windrow Straw</h3>
+              <h3 class="tex-sub">Windrow</h3>
               <div class="field">
                 <label for="texWindrowType">Windrow Fill Type</label>
                 <select id="texWindrowType">
-                  <option value="STRAW">Base-game STRAW (no new textures needed)</option>
+                  <option value="STRAW">STRAW (base game)</option>
+                  <option value="GRASS_WINDROW">GRASS_WINDROW (base game)</option>
+                  <option value="DRYGRASS_WINDROW">DRYGRASS_WINDROW, hay (base game)</option>
                   <option value="CUSTOM">This crop's own straw</option>
                 </select>
               </div>
+              <div class="tex-fill-fields">
+                <div class="field">
+                  <label for="texWindrowLiters">Windrow Liters per m²</label>
+                  <input id="texWindrowLiters" type="number" min="0" max="50" step="0.01" value="3.68" />
+                </div>
+                <div class="field">
+                  <label for="texWindrowCutFactor">Windrow Cut Factor</label>
+                  <input id="texWindrowCutFactor" type="number" min="0" max="5" step="0.05" value="1" />
+                </div>
+              </div>
               <p id="texWindrowNote" class="muted" style="margin-bottom: 10px;"></p>
-              <div class="tex-fill-preview"><canvas id="texStrawCanvas" width="512" height="512"></canvas><canvas id="texStrawHud" class="tex-hud" width="256" height="256" title="HUD icon"></canvas></div>
-              <div id="texStrawFields" class="tex-fill-fields"></div>
-              <div class="btn-row">
-                <button id="texStrawResetBtn" class="secondary">Reset to Preset</button>
-                <button id="texStrawDownloadBtn">Download Straw Textures</button>
+              <div id="texStrawDesigner">
+                <div class="tex-fill-preview"><canvas id="texStrawCanvas" width="512" height="512"></canvas><canvas id="texStrawHud" class="tex-hud" width="256" height="256" title="HUD icon"></canvas></div>
+                <div id="texStrawFields" class="tex-fill-fields"></div>
+                <div class="btn-row">
+                  <button id="texStrawResetBtn" class="secondary">Reset to Preset</button>
+                  <button id="texStrawDownloadBtn">Download Straw Textures</button>
+                </div>
               </div>
             </div>
+          </div>
+          <h3 class="tex-sub">Foliage XML Additions</h3>
+          <p class="muted">In FS25 the windrow, the straw a mower leaves, and which fill types can lie on the ground are set in the crop's own foliage XML (<code>foliage/&lt;crop&gt;/&lt;crop&gt;.xml</code>). Merge these elements into that file's <code>&lt;foliageType&gt;</code>.</p>
+          <textarea id="texFoliageXml" readonly rows="18" spellcheck="false"></textarea>
+          <div class="btn-row">
+            <button id="texFoliageCopyBtn" class="secondary">Copy</button>
+            <button id="texFoliageDownloadBtn">Download</button>
           </div>
         </section>
       </div>
@@ -1551,7 +1572,7 @@
     function buildFruitXml() {
       const root = escapeAttr(fruitRoot.value.trim() || "fruitTypes");
       const map = escapeAttr(mapName.value.trim() || "MyMap");
-      const rows = state.crops.map((crop) => `  <fruitType name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" fillType="${escapeAttr(crop.fillType)}" growthNumStates="${escapeAttr(crop.growthStates)}" seedUsagePerHectare="${escapeAttr(crop.seedRate)}" hasWindrow="${escapeAttr(crop.windrow)}"${crop.windrow ? ` windrowName="${escapeAttr(crop.windrowFillType === "CUSTOM" ? getCustomStrawFillTypeName(crop) : "STRAW")}"` : ""} plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
+      const rows = state.crops.map((crop) => `  <fruitType name="${escapeAttr(crop.name)}" title="${escapeAttr(crop.title)}" fillType="${escapeAttr(crop.fillType)}" growthNumStates="${escapeAttr(crop.growthStates)}" seedUsagePerHectare="${escapeAttr(crop.seedRate)}" hasWindrow="${escapeAttr(crop.windrow)}" plantingMonths="${escapeAttr(formatMonthList(crop, "sow"))}" harvestMonths="${escapeAttr(formatMonthList(crop, "harvest"))}"/>`);
       return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root} map=\"${map}\">`, ...rows, `</${root}>`].join("\n");
     }
 
@@ -2654,28 +2675,93 @@
       return `${String(crop.fillType || crop.name).toUpperCase()}_STRAW`;
     }
 
-    function updateWindrowNote() {
+    const DEFAULT_WINDROW_LITERS = 3.68;
+
+    // The fill type a crop's windrow produces, or null when it has none.
+    function getWindrowFillType(crop) {
+      if (!crop || !crop.windrow) {
+        return null;
+      }
+      return crop.windrowFillType === "CUSTOM" ? getCustomStrawFillTypeName(crop) : (crop.windrowFillType || "STRAW");
+    }
+
+    function getBaseFillTypeNames() {
+      const names = new Set();
+      const re = /<fillType\s+name="([^"]+)"/g;
+      let m;
+      while ((m = re.exec(runtimeInputs.fillTemplateXml || "")) !== null) {
+        names.add(m[1].toUpperCase());
+      }
+      return names;
+    }
+
+    // What FS25 expects in the crop's foliage XML (foliage/<crop>/<crop>.xml, inside <foliageType>):
+    // the fruit type's <windrow>, a MOWER converter so mowing the standing crop leaves the windrow
+    // fill type, and density map height types for new fill types so they can lie on the ground.
+    function buildFoliageAdditions(crop) {
+      if (!crop) {
+        return "";
+      }
+      const name = escapeAttr(crop.name);
+      const fillType = String(crop.fillType || crop.name).toUpperCase();
+      const windrowType = getWindrowFillType(crop);
+      const baseFillTypes = getBaseFillTypeNames();
+      const lines = [`<!-- Merge into foliage/${crop.name.toLowerCase()}/${crop.name.toLowerCase()}.xml, inside <foliageType> -->`, "<foliageType>"];
+      lines.push(`    <fruitType name="${name}">`);
+      lines.push("        <!-- keep the rest of your fruitType (harvest, seeding, growth...) as it is -->");
+      if (windrowType) {
+        lines.push(`        <windrow fillType="${escapeAttr(windrowType)}" litersPerSqm="${Number(crop.windrowLitersPerSqm ?? DEFAULT_WINDROW_LITERS)}" windrowCutFactor="${Number(crop.windrowCutFactor ?? 1)}"/>`);
+      } else {
+        lines.push("        <!-- no windrow: Has Windrow is false for this crop -->");
+      }
+      lines.push("    </fruitType>");
+      if (windrowType) {
+        lines.push("", "    <fruitTypeConverters>", "        <fruitTypeConverter name=\"MOWER\">");
+        lines.push(`            <converter from="${name}" to="${escapeAttr(windrowType)}" factor="1.0"/>`);
+        lines.push("        </fruitTypeConverter>", "    </fruitTypeConverters>");
+      }
+      const heightTypes = [];
+      if (!baseFillTypes.has(fillType)) {
+        heightTypes.push(`        <densityMapHeightType fillTypeName="${escapeAttr(fillType)}" maxSurfaceAngle="26" fillToGroundScale="1.0" allowsSmoothing="true"/>`);
+      }
+      if (windrowType && !baseFillTypes.has(windrowType)) {
+        heightTypes.push(`        <densityMapHeightType fillTypeName="${escapeAttr(windrowType)}" maxSurfaceAngle="50" fillToGroundScale="1.0" allowsSmoothing="true"/>`);
+      }
+      if (heightTypes.length) {
+        lines.push("", "    <!-- lets these fill types lie on the ground as heaps and windrows; tune angles to taste -->", "    <densityMapHeightTypes>", ...heightTypes, "    </densityMapHeightTypes>");
+      }
+      lines.push("</foliageType>");
+      return lines.join("\n");
+    }
+
+    function updateWindrowUi() {
       const { crop } = getSelectedTexCrop();
       const note = document.getElementById("texWindrowNote");
+      const custom = Boolean(crop && crop.windrow && crop.windrowFillType === "CUSTOM");
+      document.getElementById("texStrawDesigner").style.display = custom ? "" : "none";
+      ["texWindrowType", "texWindrowLiters", "texWindrowCutFactor"].forEach((id) => {
+        document.getElementById(id).disabled = !crop || !crop.windrow;
+      });
       if (!crop) {
         note.textContent = "";
-        return;
-      }
-      if (!crop.windrow) {
-        note.textContent = "This crop has no windrow. Set Has Windrow to true when adding the crop to use straw.";
-      } else if (crop.windrowFillType === "CUSTOM") {
-        note.textContent = `Adds a ${getCustomStrawFillTypeName(crop)} fill type to maps_fillTypes.xml that uses these textures.`;
+      } else if (!crop.windrow) {
+        note.textContent = "This crop has no windrow. Set Has Windrow to true when adding the crop to give it one.";
+      } else if (custom) {
+        note.textContent = `Adds a ${getCustomStrawFillTypeName(crop)} fill type (maps_fillTypes.xml) with the straw textures below, and its ground height type in the foliage XML additions.`;
       } else {
-        note.textContent = "Windrows use the base-game STRAW fill type and its textures. The designer below is only needed for this crop's own straw.";
+        note.textContent = `The windrow uses the base-game ${crop.windrowFillType || "STRAW"} fill type, which already has its textures and ground height type.`;
       }
+      document.getElementById("texFoliageXml").value = buildFoliageAdditions(crop);
     }
 
     function loadFillControls() {
       const { cropName, crop } = getSelectedTexCrop();
       loadSmallFields("tf", FILL_FIELDS, getCropFillDesign(cropName));
       loadSmallFields("ts", STRAW_FIELDS, getCropStrawDesign(cropName));
-      document.getElementById("texWindrowType").value = crop && crop.windrowFillType === "CUSTOM" ? "CUSTOM" : "STRAW";
-      updateWindrowNote();
+      document.getElementById("texWindrowType").value = (crop && crop.windrowFillType) || "STRAW";
+      document.getElementById("texWindrowLiters").value = String((crop && crop.windrowLitersPerSqm) ?? DEFAULT_WINDROW_LITERS);
+      document.getElementById("texWindrowCutFactor").value = String((crop && crop.windrowCutFactor) ?? 1);
+      updateWindrowUi();
     }
 
     function drawTiledPreview(canvasId, maps) {
@@ -2806,7 +2892,34 @@
         saveCropsToStorage();
         updateGeneratedXml(false);
       }
-      updateWindrowNote();
+      updateWindrowUi();
+      scheduleFillPreview();
+    });
+
+    [["texWindrowLiters", "windrowLitersPerSqm", 0, 50], ["texWindrowCutFactor", "windrowCutFactor", 0, 5]].forEach(([id, key, min, max]) => {
+      document.getElementById(id).addEventListener("input", (event) => {
+        const { crop } = getSelectedTexCrop();
+        const value = Number(event.target.value);
+        if (crop && event.target.value !== "" && Number.isFinite(value)) {
+          crop[key] = Math.min(max, Math.max(min, value));
+          saveCropsToStorage();
+        }
+        document.getElementById("texFoliageXml").value = buildFoliageAdditions(crop);
+      });
+    });
+
+    document.getElementById("texFoliageCopyBtn").addEventListener("click", () => {
+      const text = document.getElementById("texFoliageXml").value;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => setExportStatus("Foliage XML additions copied."), () => setExportStatus("Couldn't copy; select the text and copy it instead."));
+      }
+    });
+
+    document.getElementById("texFoliageDownloadBtn").addEventListener("click", () => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        downloadFile(`${crop.name.toLowerCase()}_foliage_additions.xml`, buildFoliageAdditions(crop));
+      }
     });
 
     document.getElementById("texFillResetBtn").addEventListener("click", () => {
