@@ -756,6 +756,11 @@
             </div>
           </div>
           <p class="muted">Downloads are laid out like your mod, using these folders, so they can be unzipped straight into it.</p>
+          <div class="field" style="max-width: 420px;">
+            <label for="texBehavesLike">Fill Type Behaves Like</label>
+            <select id="texBehavesLike"></select>
+          </div>
+          <p id="texBehavesLikeNote" class="muted" style="margin-bottom: 8px;"></p>
           <div class="grid">
             <div class="span-6">
               <h3 class="tex-sub">Harvested Crop (Fill Plane)</h3>
@@ -794,6 +799,23 @@
                 <div class="btn-row">
                   <button id="texStrawResetBtn" class="secondary">Reset to Preset</button>
                   <button id="texStrawDownloadBtn">Download Straw Textures</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="grid">
+            <div class="span-6">
+              <h3 class="tex-sub">Cut Swath (Windrower → Pickup Header)</h3>
+              <div class="field">
+                <label class="check-label"><input id="texCutEnabled" type="checkbox" /> Can be cut into a swath and picked up by a combine</label>
+              </div>
+              <p id="texCutNote" class="muted" style="margin-bottom: 10px;"></p>
+              <div id="texCutDesigner">
+                <div class="tex-fill-preview"><canvas id="texCutCanvas" width="512" height="512"></canvas><canvas id="texCutHud" class="tex-hud" width="256" height="256" title="HUD icon"></canvas></div>
+                <div id="texCutFields" class="tex-fill-fields"></div>
+                <div class="btn-row">
+                  <button id="texCutResetBtn" class="secondary">Reset to Preset</button>
+                  <button id="texCutDownloadBtn">Download Cut Swath Textures</button>
                 </div>
               </div>
             </div>
@@ -887,9 +909,13 @@
     const defaultFillTemplate = typeof window.BUILTIN_FULL_FILLTYPES_XML === "string"
       ? window.BUILTIN_FULL_FILLTYPES_XML
       : ((window.BUILTIN_FULL_FILLTYPES_XML && typeof window.BUILTIN_FULL_FILLTYPES_XML.value === "string") ? window.BUILTIN_FULL_FILLTYPES_XML.value : "");
+    // The fruit template ships as { value: "<xml>" } like the fill template; unwrap it the same way.
+    const defaultFruitTemplate = typeof window.BUILTIN_FULL_FRUITTYPES_XML === "string"
+      ? window.BUILTIN_FULL_FRUITTYPES_XML
+      : ((window.BUILTIN_FULL_FRUITTYPES_XML && typeof window.BUILTIN_FULL_FRUITTYPES_XML.value === "string") ? window.BUILTIN_FULL_FRUITTYPES_XML.value : "");
     const runtimeInputs = {
       fillTemplateXml: defaultFillTemplate,
-      fullFruitTemplateXml: window.BUILTIN_FULL_FRUITTYPES_XML || ""
+      fullFruitTemplateXml: defaultFruitTemplate
     };
     const inputSourceState = {
       fill: "default",
@@ -1576,10 +1602,41 @@
       return ["<?xml version=\"1.0\" encoding=\"utf-8\"?>", `<${root} map=\"${map}\">`, ...rows, `</${root}>`].join("\n");
     }
 
+    // Base crop each US preset behaves like in game (fill categories, physics, price, sounds).
+    const BEHAVES_LIKE_BY_PRESET = {
+      HRWWHEAT: "WHEAT", SRWWHEAT: "WHEAT", WHITEWHEAT: "WHEAT", HRSWHEAT: "WHEAT", DURUM: "WHEAT", SPELT: "WHEAT",
+      RYE: "WHEAT", TRITICALE: "WHEAT", REDOAT: "OAT", PROSOMILLET: "SORGHUM", PEARLMILLET: "SORGHUM", WILDRICE: "RICE",
+      TEFF: "SORGHUM", SWEETCORN: "MAIZE", POPCORN: "MAIZE", SORGHUMSUDAN: "SORGHUM", BROOMCORN: "SORGHUM",
+      HEMP: "CANOLA", CONFECTIONSUNFLOWER: "SUNFLOWER", SAFFLOWER: "SUNFLOWER", FLAX: "CANOLA", CAMELINA: "CANOLA",
+      MUSTARD: "CANOLA", BUCKWHEAT: "WHEAT", PINTOBEAN: "SOYBEAN", NAVYBEAN: "SOYBEAN", BLACKBEAN: "SOYBEAN",
+      KIDNEYBEAN: "SOYBEAN", COWPEA: "SOYBEAN", CHICKPEA: "SOYBEAN", LENTIL: "SOYBEAN", DRYPEA: "PEA",
+      PEANUT: "SOYBEAN", ONION: "POTATO", GARLIC: "POTATO", SWEETPOTATO: "POTATO", CABBAGE: "SUGARBEET",
+      LETTUCE: "SPINACH", PIMACOTTON: "COTTON", TOBACCO: "SPINACH", PUMPKIN: "POTATO", WATERMELON: "POTATO",
+      TOMATO: "POTATO", CHILEPEPPER: "GREENBEAN"
+    };
+    const BEHAVES_LIKE_BY_HEAD = { spike: "WHEAT", panicle: "OAT", tassel: "MAIZE", disc: "SUNFLOWER", raceme: "CANOLA", pods: "SOYBEAN", bolls: "COTTON" };
+    const BEHAVES_LIKE_BY_MATERIAL = { kernels: "WHEAT", seeds: "CANOLA", beans: "SOYBEAN", tubers: "POTATO", roots: "CARROT", fluff: "COTTON", leafy: "SPINACH" };
+
+    function getAutoBehavesLike(crop) {
+      if (!crop) {
+        return "WHEAT";
+      }
+      const design = getCropTextureDesign(crop.name);
+      const presetKey = design && design.preset && BEHAVES_LIKE_BY_PRESET[design.preset] ? design.preset : crop.name;
+      return BEHAVES_LIKE_BY_PRESET[presetKey]
+        || BEHAVES_LIKE_BY_HEAD[design && design.head]
+        || BEHAVES_LIKE_BY_MATERIAL[getCropFillDesign(crop.name).material]
+        || "WHEAT";
+    }
+
+    function getCropBehavesLike(crop) {
+      return (crop && crop.behavesLike) || getAutoBehavesLike(crop);
+    }
+
     // A fill type for a new crop (or its straw), cloned from a base-game template so it keeps sensible
     // physics and economy, with <textures> and the HUD <image> pointing at files from the Textures tab.
     // FS25 XML names textures with .png; the game loads the .dds with the same name.
-    function createCropFillTypeNode(xmlDoc, templateNode, name, title, crop, straw) {
+    function createCropFillTypeNode(xmlDoc, templateNode, name, title, crop, kind) {
       const node = templateNode ? templateNode.cloneNode(true) : xmlDoc.createElement("fillType");
       node.setAttribute("name", name);
       node.setAttribute("title", title);
@@ -1593,8 +1650,8 @@
         node.appendChild(textures);
       }
       const folder = getFillFolder();
-      const base = getFillFileBase(crop, straw);
-      const design = crop ? (straw ? getCropStrawDesign(crop.name) : getCropFillDesign(crop.name)) : CT.DEFAULT_FILL;
+      const base = getFillFileBase(crop, kind);
+      const design = crop ? getKindDesign(crop.name, kind) : CT.DEFAULT_FILL;
       textures.setAttribute("diffuse", `${folder}${base}_diffuse.png`);
       textures.setAttribute("unitSize", String(design.unitSize));
       textures.setAttribute("normal", `${folder}${base}_normal.png`);
@@ -1606,7 +1663,7 @@
         image = xmlDoc.createElement("image");
         node.insertBefore(image, textures);
       }
-      image.setAttribute("hud", crop ? getHudIconPath(crop, straw) : "");
+      image.setAttribute("hud", crop ? getHudIconPath(crop, kind) : "");
       return node;
     }
 
@@ -1682,6 +1739,21 @@
       const selectedFillTypes = new Set(finalRows.map((entry) => entry.name));
 
       const newFillTypesNode = xmlDoc.createElement("fillTypes");
+      const followers = new Map();
+      const addFollower = (baseName, name) => {
+        if (!followers.has(baseName)) {
+          followers.set(baseName, []);
+        }
+        followers.get(baseName).push(name);
+      };
+      // Fill type converters to copy for new fill types: base "from" name -> the new fill types.
+      const converterFollowers = new Map();
+      const addConverterFollower = (baseName, entry) => {
+        if (!converterFollowers.has(baseName)) {
+          converterFollowers.set(baseName, []);
+        }
+        converterFollowers.get(baseName).push(entry);
+      };
       const emittedNames = new Set();
 
       Array.from(existingFillTypesNode.children).forEach((node) => {
@@ -1714,8 +1786,15 @@
           return;
         }
 
-        newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, templatesByName.get("WHEAT"), entry.name, entry.title, entry.crop, false));
+        // A new fill type copies the base crop it behaves like (physics, price, effects) and later joins
+        // every category and fill sound that crop is in.
+        const likeName = getCropBehavesLike(entry.crop);
+        const likeTemplate = templatesByName.get(likeName) || templatesByName.get("WHEAT");
+        newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, likeTemplate, entry.name, entry.title, entry.crop, false));
         emittedNames.add(entry.name);
+        const followed = templatesByName.has(likeName) ? likeName : "WHEAT";
+        addFollower(followed, entry.name);
+        addConverterFollower(followed, { name: entry.name, like: followed, fill: entry.name, cut: null });
       });
 
       // Crops with their own windrow straw get a <FILLTYPE>_STRAW fill type modelled on STRAW.
@@ -1731,6 +1810,22 @@
         newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, templatesByName.get("STRAW"), strawName, `${crop.title} Straw`, crop, true));
         emittedNames.add(strawName);
         customStrawNames.push(strawName);
+        addFollower("STRAW", strawName);
+      });
+
+      // Crops that can be swathed get a <FILLTYPE>_CUT fill type modelled on the base crop's _CUT one, and
+      // the pickup-header converters that thresh it back to grain (or chop it to chaff).
+      state.crops.forEach((crop) => {
+        const cutName = getCropCutSwath(crop);
+        const fillName = String(crop.fillType || crop.name).toUpperCase();
+        if (!cutName || emittedNames.has(cutName) || !emittedNames.has(fillName)) {
+          return;
+        }
+        const like = getCropBehavesLike(crop);
+        newFillTypesNode.appendChild(createCropFillTypeNode(xmlDoc, templatesByName.get(`${like}_CUT`), cutName, crop.title, crop, "cut"));
+        emittedNames.add(cutName);
+        addFollower(`${like}_CUT`, cutName);
+        addConverterFollower(`${like}_CUT`, { name: cutName, like, fill: fillName, cut: cutName });
       });
 
       mapNode.replaceChild(newFillTypesNode, existingFillTypesNode);
@@ -1757,15 +1852,26 @@
         return filtered.join(" ");
       };
 
+      // New fill types go wherever the base fill type they follow goes (combine, trailers, silos, selling
+      // points, windrows...). Checked against the original list, so it works even if that base crop isn't
+      // on the map's calendar.
+      const withFollowers = (originalValue, filteredValue) => {
+        const original = String(originalValue || "").trim().split(/\s+/).filter(Boolean).map((t) => t.toUpperCase());
+        const tokens = String(filteredValue || "").split(/\s+/).filter(Boolean);
+        original.forEach((token) => {
+          (followers.get(token) || []).forEach((name) => {
+            if (!tokens.includes(name)) {
+              tokens.push(name);
+            }
+          });
+        });
+        return tokens.join(" ");
+      };
+
       const categoryNodes = mapNode.querySelectorAll("fillTypeCategories > fillTypeCategory");
       categoryNodes.forEach((categoryNode) => {
-        let nextValue = filterFillTypeList(categoryNode.textContent || "");
-        // Custom straw goes wherever base-game STRAW goes (windrows, bales, bulk...).
-        const tokens = nextValue.split(/\s+/);
-        if (customStrawNames.length && tokens.includes("STRAW")) {
-          nextValue = [...tokens, ...customStrawNames.filter((n) => !tokens.includes(n))].join(" ");
-        }
-        categoryNode.textContent = nextValue;
+        const original = categoryNode.textContent || "";
+        categoryNode.textContent = withFollowers(original, filterFillTypeList(original));
       });
 
       const soundNodes = Array.from(mapNode.querySelectorAll("fillTypeSounds > fillTypeSound"));
@@ -1774,12 +1880,35 @@
           return;
         }
 
-        const nextValue = filterFillTypeList(soundNode.getAttribute("fillTypes") || "");
+        const original = soundNode.getAttribute("fillTypes") || "";
+        const nextValue = withFollowers(original, filterFillTypeList(original));
         if (!nextValue) {
           soundNode.parentNode.removeChild(soundNode);
           return;
         }
         soundNode.setAttribute("fillTypes", nextValue);
+      });
+
+      // Copy each converter from the base fill type for the new one, e.g. PICKUPHEADER_GRAIN
+      // SOYBEAN_CUT -> SOYBEAN becomes BLACKBEAN_CUT -> BLACKBEAN.
+      mapNode.querySelectorAll("fillTypeConverters > fillTypeConverter").forEach((converterGroup) => {
+        const existing = new Set(Array.from(converterGroup.children).map((c) => `${String(c.getAttribute("from")).toUpperCase()}>${String(c.getAttribute("to")).toUpperCase()}`));
+        Array.from(converterGroup.children).filter((c) => c.tagName === "converter").forEach((converter) => {
+          const from = String(converter.getAttribute("from") || "").toUpperCase();
+          const to = String(converter.getAttribute("to") || "").toUpperCase();
+          (converterFollowers.get(from) || []).forEach((entry) => {
+            const newTo = to === entry.like ? entry.fill : to === `${entry.like}_CUT` && entry.cut ? entry.cut : to;
+            const key = `${entry.name}>${newTo}`;
+            if (existing.has(key)) {
+              return;
+            }
+            const copy = converter.cloneNode(true);
+            copy.setAttribute("from", entry.name);
+            copy.setAttribute("to", newTo);
+            converterGroup.appendChild(copy);
+            existing.add(key);
+          });
+        });
       });
 
       const serializer = new XMLSerializer();
@@ -1864,12 +1993,19 @@
           renderAll();
         });
 
-        cell.addEventListener("mouseenter", () => {
-          if (!isMouseDown) {
+        cell.addEventListener("mouseenter", (event) => {
+          // Each paint rebuilds the table, and a mouseup whose target was rebuilt away can be lost,
+          // so trust the live button state rather than isMouseDown alone.
+          if (!isMouseDown || (event.buttons & 1) === 0) {
+            isMouseDown = false;
             return;
           }
           const cropIndex = Number(cell.getAttribute("data-crop"));
           const monthIndex = Number(cell.getAttribute("data-month"));
+          // The rebuilt cell under a still pointer fires mouseenter again; don't repaint it.
+          if (state.crops[cropIndex].calendar[monthIndex] === paintValue) {
+            return;
+          }
           state.crops[cropIndex].calendar[monthIndex] = paintValue;
           renderAll();
         });
@@ -2656,19 +2792,65 @@
       return getModFolder("texFillFolder");
     }
 
-    function getHudIconPath(crop, straw) {
-      return `${getModFolder("texHudFolder")}hud_fill_${getFillFileBase(crop, straw)}.png`;
+    function getHudIconPath(crop, kind) {
+      return `${getModFolder("texHudFolder")}hud_fill_${getFillFileBase(crop, kind)}.png`;
     }
 
-    function makeHudIcon(cropName, straw) {
-      const design = straw ? { ...getCropStrawDesign(cropName), material: "strands" } : getCropFillDesign(cropName);
-      return CT.generateHudIcon(design, Number(document.getElementById("texHudSize").value) || 256, `${cropName}:${straw ? "straw" : "fill"}`, document.getElementById("texHudStyle").value);
+    function makeHudIcon(cropName, kind) {
+      const k = normKind(kind);
+      return CT.generateHudIcon(getKindDesign(cropName, k), Number(document.getElementById("texHudSize").value) || 256, `${cropName}:${k}`, document.getElementById("texHudStyle").value);
+    }
+
+    // Texture kinds: "fill" (the harvested crop), "straw" (its own straw windrow), "cut" (windrower swath).
+    // true/false are accepted for straw/fill.
+    function normKind(kind) {
+      if (kind === true) {
+        return "straw";
+      }
+      return kind === "straw" || kind === "cut" ? kind : "fill";
+    }
+
+    function getKindDesign(cropName, kind) {
+      const k = normKind(kind);
+      if (k === "straw") {
+        return { ...getCropStrawDesign(cropName), material: "strands" };
+      }
+      if (k === "cut") {
+        return { ...getCropCutDesign(cropName), material: "strands" };
+      }
+      return getCropFillDesign(cropName);
+    }
+
+    function getCropCutDesign(cropName) {
+      const crop = state.crops.find((c) => c.name === cropName);
+      if (crop && crop.cutDesign) {
+        return { ...CT.DEFAULT_STRAW, ...crop.cutDesign };
+      }
+      return CT.getCutPreset(String(cropName || "").toUpperCase(), getCropTextureDesign(cropName));
+    }
+
+    function getCutFillTypeName(crop) {
+      return `${String(crop.fillType || crop.name).toUpperCase()}_CUT`;
+    }
+
+    // The crop's windrower swath fill type (<FILLTYPE>_CUT), when the base crop it behaves like has one
+    // (WHEAT, BARLEY, OAT, CANOLA, SOYBEAN) and it isn't switched off. Base-game crops already have theirs.
+    function getCropCutSwath(crop) {
+      if (!crop || crop.cutSwath === false) {
+        return null;
+      }
+      const baseNames = getBaseFillTypeNames();
+      if (baseNames.has(String(crop.fillType || crop.name).toUpperCase())) {
+        return null;
+      }
+      return baseNames.has(`${getCropBehavesLike(crop)}_CUT`) ? getCutFillTypeName(crop) : null;
     }
 
     // File base names follow the base game's style: lowercase fill type, "Straw" suffix for straw.
-    function getFillFileBase(crop, straw) {
+    function getFillFileBase(crop, kind) {
       const base = String((crop && (crop.fillType || crop.name)) || "crop").toLowerCase();
-      return straw ? `${base}Straw` : base;
+      const k = normKind(kind);
+      return k === "straw" ? `${base}Straw` : k === "cut" ? `${base}Cut` : base;
     }
 
     function getCustomStrawFillTypeName(crop) {
@@ -2695,38 +2877,105 @@
       return names;
     }
 
-    // What FS25 expects in the crop's foliage XML (foliage/<crop>/<crop>.xml, inside <foliageType>):
-    // the fruit type's <windrow>, a MOWER converter so mowing the standing crop leaves the windrow
-    // fill type, and density map height types for new fill types so they can lie on the ground.
+    // Base-game fruit type categories and converters (maps_fruitTypes.xml) that list a given fruit.
+    function getBaseFruitWiring(fruitName) {
+      const categories = [];
+      const converters = [];
+      const doc = new DOMParser().parseFromString(runtimeInputs.fullFruitTemplateXml || "<map/>", "application/xml");
+      doc.querySelectorAll("fruitTypeCategories > fruitTypeCategory").forEach((node) => {
+        if (String(node.textContent || "").toUpperCase().split(/\s+/).includes(fruitName)) {
+          categories.push(node.getAttribute("name"));
+        }
+      });
+      doc.querySelectorAll("fruitTypeConverters > fruitTypeConverter").forEach((group) => {
+        Array.from(group.children).forEach((converter) => {
+          if (converter.tagName === "converter" && String(converter.getAttribute("from")).toUpperCase() === fruitName) {
+            converters.push({ group: group.getAttribute("name"), to: String(converter.getAttribute("to")).toUpperCase(), factor: converter.getAttribute("factor") || "1.0" });
+          }
+        });
+      });
+      return { categories, converters };
+    }
+
+    // What FS25 expects in the crop's foliage XML (foliage/<crop>/<crop>.xml, inside <foliageType>), copied
+    // from the base crop it behaves like: the fruit type's <windrow> (straw windrow and windrower swath), the
+    // fruit type categories that let headers harvest it and planters sow it, the fruit type converters
+    // (MOWER -> straw, COMBINE_MOWER -> swath, FORAGEHARVESTER -> chaff...), and density map height types so
+    // new fill types can lie on the ground.
     function buildFoliageAdditions(crop) {
       if (!crop) {
         return "";
       }
-      const name = escapeAttr(crop.name);
+      const name = String(crop.name).toUpperCase();
       const fillType = String(crop.fillType || crop.name).toUpperCase();
-      const windrowType = getWindrowFillType(crop);
       const baseFillTypes = getBaseFillTypeNames();
-      const lines = [`<!-- Merge into foliage/${crop.name.toLowerCase()}/${crop.name.toLowerCase()}.xml, inside <foliageType> -->`, "<foliageType>"];
-      lines.push(`    <fruitType name="${name}">`);
+      const file = `foliage/${crop.name.toLowerCase()}/${crop.name.toLowerCase()}.xml`;
+      if (baseFillTypes.has(fillType) && fillType === name) {
+        return `<!-- ${name} is a base-game crop; its foliage XML already sets all of this up. -->`;
+      }
+      const like = getCropBehavesLike(crop);
+      const windrowType = getWindrowFillType(crop);
+      const cutType = getCropCutSwath(crop);
+      const wiring = getBaseFruitWiring(like);
+      const lines = [`<!-- Merge into ${file}, inside <foliageType>. Wired like ${like}. -->`, "<foliageType>"];
+
+      lines.push(`    <fruitType name="${escapeAttr(name)}">`);
       lines.push("        <!-- keep the rest of your fruitType (harvest, seeding, growth...) as it is -->");
-      if (windrowType) {
-        lines.push(`        <windrow fillType="${escapeAttr(windrowType)}" litersPerSqm="${Number(crop.windrowLitersPerSqm ?? DEFAULT_WINDROW_LITERS)}" windrowCutFactor="${Number(crop.windrowCutFactor ?? 1)}"/>`);
-      } else {
-        lines.push("        <!-- no windrow: Has Windrow is false for this crop -->");
+      if (windrowType || cutType) {
+        const attrs = [];
+        if (windrowType) {
+          attrs.push(`fillType="${escapeAttr(windrowType)}"`, `litersPerSqm="${Number(crop.windrowLitersPerSqm ?? DEFAULT_WINDROW_LITERS)}"`);
+        }
+        if (cutType) {
+          attrs.push(`cutFillType="${escapeAttr(cutType)}"`);
+        }
+        attrs.push(`windrowCutFactor="${Number(crop.windrowCutFactor ?? 1)}"`);
+        lines.push(`        <windrow ${attrs.join(" ")}/>`);
       }
       lines.push("    </fruitType>");
-      if (windrowType) {
-        lines.push("", "    <fruitTypeConverters>", "        <fruitTypeConverter name=\"MOWER\">");
-        lines.push(`            <converter from="${name}" to="${escapeAttr(windrowType)}" factor="1.0"/>`);
-        lines.push("        </fruitTypeConverter>", "    </fruitTypeConverters>");
+
+      // Mowing makes the windrow, so MOWER only applies with a windrow; COMBINE_MOWER only with a swath.
+      const categories = wiring.categories.filter((c) => (c !== "MOWER" || windrowType) && (c !== "COMBINE_MOWER" || cutType));
+      if (categories.length) {
+        lines.push("", "    <!-- adds the crop to these base-game categories (headers, planters, mowers...) -->", "    <fruitTypeCategories>");
+        categories.forEach((c) => lines.push(`        <fruitTypeCategory name="${escapeAttr(c)}">${escapeAttr(name)}</fruitTypeCategory>`));
+        lines.push("    </fruitTypeCategories>");
       }
+
+      const groups = new Map();
+      wiring.converters.forEach(({ group, to, factor }) => {
+        let target = to === like ? fillType : to;
+        if (group === "MOWER") {
+          target = windrowType;
+        } else if (group === "COMBINE_MOWER") {
+          target = cutType;
+        }
+        if (!target) {
+          return;
+        }
+        if (!groups.has(group)) {
+          groups.set(group, []);
+        }
+        groups.get(group).push(`            <converter from="${escapeAttr(name)}" to="${escapeAttr(target)}" factor="${escapeAttr(factor)}"/>`);
+      });
+      if (windrowType && !groups.has("MOWER")) {
+        groups.set("MOWER", [`            <converter from="${escapeAttr(name)}" to="${escapeAttr(windrowType)}" factor="1.0"/>`]);
+      }
+      if (groups.size) {
+        lines.push("", "    <fruitTypeConverters>");
+        groups.forEach((rows, group) => lines.push(`        <fruitTypeConverter name="${escapeAttr(group)}">`, ...rows, "        </fruitTypeConverter>"));
+        lines.push("    </fruitTypeConverters>");
+      }
+
       const heightTypes = [];
-      if (!baseFillTypes.has(fillType)) {
-        heightTypes.push(`        <densityMapHeightType fillTypeName="${escapeAttr(fillType)}" maxSurfaceAngle="26" fillToGroundScale="1.0" allowsSmoothing="true"/>`);
-      }
-      if (windrowType && !baseFillTypes.has(windrowType)) {
-        heightTypes.push(`        <densityMapHeightType fillTypeName="${escapeAttr(windrowType)}" maxSurfaceAngle="50" fillToGroundScale="1.0" allowsSmoothing="true"/>`);
-      }
+      const addHeight = (fill, angle) => {
+        if (fill && !baseFillTypes.has(fill)) {
+          heightTypes.push(`        <densityMapHeightType fillTypeName="${escapeAttr(fill)}" maxSurfaceAngle="${angle}" fillToGroundScale="1.0" allowsSmoothing="true"/>`);
+        }
+      };
+      addHeight(fillType, 26);
+      addHeight(windrowType, 50);
+      addHeight(cutType, 50);
       if (heightTypes.length) {
         lines.push("", "    <!-- lets these fill types lie on the ground as heaps and windrows; tune angles to taste -->", "    <densityMapHeightTypes>", ...heightTypes, "    </densityMapHeightTypes>");
       }
@@ -2751,17 +3000,60 @@
       } else {
         note.textContent = `The windrow uses the base-game ${crop.windrowFillType || "STRAW"} fill type, which already has its textures and ground height type.`;
       }
+      updateCutUi();
       document.getElementById("texFoliageXml").value = buildFoliageAdditions(crop);
+    }
+
+    function updateCutUi() {
+      const { crop } = getSelectedTexCrop();
+      const box = document.getElementById("texCutEnabled");
+      const note = document.getElementById("texCutNote");
+      const like = crop ? getCropBehavesLike(crop) : "";
+      const baseNames = getBaseFillTypeNames();
+      const fillType = crop ? String(crop.fillType || crop.name).toUpperCase() : "";
+      const supported = Boolean(crop) && baseNames.has(`${like}_CUT`) && !baseNames.has(fillType);
+      const cutType = getCropCutSwath(crop);
+      box.disabled = !supported;
+      box.checked = Boolean(cutType);
+      document.getElementById("texCutDesigner").style.display = cutType ? "" : "none";
+      if (!crop) {
+        note.textContent = "";
+      } else if (baseNames.has(fillType)) {
+        note.textContent = `${fillType} is a base-game fill type; its swath (if any) is already set up.`;
+      } else if (!supported) {
+        note.textContent = `${like} has no swath in the base game (only WHEAT, BARLEY, OAT, CANOLA and SOYBEAN do), so there's nothing to copy. Pick one of those under Fill Type Behaves Like to enable it.`;
+      } else if (cutType) {
+        note.textContent = `Adds ${cutType}, copied from ${like}_CUT: a windrower cuts the crop into this swath, a grain pickup header threshes it to ${fillType}, and a grass pickup header chops it to CHAFF.`;
+      } else {
+        note.textContent = `Off: the crop can only be combined standing. Turn on to swath it like ${like}.`;
+      }
+    }
+
+    function loadBehavesLike() {
+      const { crop } = getSelectedTexCrop();
+      const sel = document.getElementById("texBehavesLike");
+      const note = document.getElementById("texBehavesLikeNote");
+      const baseNames = [...new Set(defaultCrops.map((c) => String(c.fillType || c.name).toUpperCase()))].sort();
+      sel.innerHTML = `<option value="">Auto (${getAutoBehavesLike(crop)})</option>` + baseNames.map((n) => `<option value="${n}">${n}</option>`).join("");
+      sel.value = (crop && crop.behavesLike) || "";
+      const fillType = crop ? String(crop.fillType || crop.name).toUpperCase() : "";
+      const isBase = getBaseFillTypeNames().has(fillType);
+      sel.disabled = !crop || isBase;
+      note.textContent = !crop ? "" : isBase
+        ? `${fillType} is a base-game fill type, so it keeps its own settings and categories.`
+        : `${fillType} copies ${getCropBehavesLike(crop)}'s weight, price and effects, and joins every fill category it's in (combine, trailers, silos, selling points...).`;
     }
 
     function loadFillControls() {
       const { cropName, crop } = getSelectedTexCrop();
       loadSmallFields("tf", FILL_FIELDS, getCropFillDesign(cropName));
       loadSmallFields("ts", STRAW_FIELDS, getCropStrawDesign(cropName));
+      loadSmallFields("tc", CUT_FIELDS, getCropCutDesign(cropName));
       document.getElementById("texWindrowType").value = (crop && crop.windrowFillType) || "STRAW";
       document.getElementById("texWindrowLiters").value = String((crop && crop.windrowLitersPerSqm) ?? DEFAULT_WINDROW_LITERS);
       document.getElementById("texWindrowCutFactor").value = String((crop && crop.windrowCutFactor) ?? 1);
       updateWindrowUi();
+      loadBehavesLike();
     }
 
     function drawTiledPreview(canvasId, maps) {
@@ -2777,11 +3069,19 @@
       const resolution = Math.min(512, Number(document.getElementById("texResolution").value) || 512);
       drawTiledPreview("texFillCanvas", CT.generateFillPlaneMaps(getCropFillDesign(cropName), resolution, `${cropName}:fill`));
       drawTiledPreview("texStrawCanvas", CT.generateFillPlaneMaps({ ...getCropStrawDesign(cropName), material: "strands" }, resolution, `${cropName}:straw`));
-      [["texFillHud", false], ["texStrawHud", true]].forEach(([id, straw]) => {
+      const { crop } = getSelectedTexCrop();
+      const cutOn = Boolean(getCropCutSwath(crop));
+      if (cutOn) {
+        drawTiledPreview("texCutCanvas", CT.generateFillPlaneMaps(getKindDesign(cropName, "cut"), resolution, `${cropName}:cut`));
+      }
+      [["texFillHud", "fill"], ["texStrawHud", "straw"], ["texCutHud", "cut"]].forEach(([id, kind]) => {
+        if (kind === "cut" && !cutOn) {
+          return;
+        }
         const canvas = document.getElementById(id);
         const ctx = canvas.getContext("2d");
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(makeHudIcon(cropName, straw), 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(makeHudIcon(cropName, kind), 0, 0, canvas.width, canvas.height);
       });
     }
 
@@ -2794,13 +3094,13 @@
       fillPreviewTimer = setTimeout(renderFillPreviews, 250);
     }
 
-    async function buildFillFiles(straw) {
+    async function buildFillFiles(kind) {
+      const k = normKind(kind);
       const { cropName, crop } = getSelectedTexCrop();
       const format = document.getElementById("texFormat").value;
       const resolution = Number(document.getElementById("texResolution").value) || 512;
-      const design = straw ? { ...getCropStrawDesign(cropName), material: "strands" } : getCropFillDesign(cropName);
-      const maps = CT.generateFillPlaneMaps(design, resolution, `${cropName}:${straw ? "straw" : "fill"}`);
-      const base = getFillFileBase(crop, straw);
+      const maps = CT.generateFillPlaneMaps(getKindDesign(cropName, k), resolution, `${cropName}:${k}`);
+      const base = getFillFileBase(crop, k);
       const folder = getFillFolder();
       // Height and displacement are single-channel: BC4 when compressing, 8-bit gray when not.
       const colorFormat = { "dds-bc3": "BC3", "dds-bc1": "BC1", "dds-rgba": "RGBA" }[format];
@@ -2811,7 +3111,7 @@
         [`${folder}${base}_height`, maps.height, grayFormat],
         [`${folder}${base}_displacement`, maps.displacement, grayFormat],
         [`${folder}distance/${base}Distance_diffuse`, maps.distance, colorFormat],
-        [getHudIconPath(crop, straw).replace(/\.png$/, ""), makeHudIcon(cropName, straw), colorFormat === "BC1" ? "BC3" : colorFormat]
+        [getHudIconPath(crop, k).replace(/\.png$/, ""), makeHudIcon(cropName, k), colorFormat === "BC1" ? "BC3" : colorFormat]
       ];
       const files = [];
       for (const [name, canvas, dds] of entries) {
@@ -2824,10 +3124,11 @@
       return { files, base };
     }
 
-    async function downloadFillTextures(straw) {
-      setExportStatus(straw ? "Encoding straw textures…" : "Encoding fill plane textures…");
+    async function downloadFillTextures(kind) {
+      const k = normKind(kind);
+      setExportStatus(`Encoding ${k === "straw" ? "straw" : k === "cut" ? "cut swath" : "fill plane"} textures…`);
       await new Promise((r) => setTimeout(r, 20));
-      const { files, base } = await buildFillFiles(straw);
+      const { files, base } = await buildFillFiles(k);
       downloadZip(`${base}_fillPlane.zip`, files);
       setExportStatus(`Saved ${files.length} files for ${base}.`);
     }
@@ -2854,6 +3155,16 @@
 
     buildSmallFields("texFillFields", "tf", FILL_FIELDS, onFillFieldInput);
     buildSmallFields("texStrawFields", "ts", STRAW_FIELDS, onStrawFieldInput);
+    const CUT_FIELDS = STRAW_FIELDS.map((f) => (f.key === "accent" ? { ...f, label: "Heads / Pods" } : f.key === "color2" ? { ...f, label: "Head / Pod Color" } : f.key === "color" ? { ...f, label: "Stalk Color" } : f));
+    buildSmallFields("texCutFields", "tc", CUT_FIELDS, () => {
+      const { cropName, crop } = getSelectedTexCrop();
+      if (crop) {
+        crop.cutDesign = readSmallFields("tc", CUT_FIELDS, getCropCutDesign(cropName));
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      scheduleFillPreview();
+    });
 
     const FILL_EXPORT_SETTINGS = ["texFillFolder", "texHudFolder", "texHudStyle", "texHudSize"];
     try {
@@ -2906,6 +3217,45 @@
         }
         document.getElementById("texFoliageXml").value = buildFoliageAdditions(crop);
       });
+    });
+
+    document.getElementById("texCutEnabled").addEventListener("change", (event) => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        crop.cutSwath = event.target.checked;
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      updateWindrowUi();
+      scheduleFillPreview();
+    });
+
+    document.getElementById("texCutResetBtn").addEventListener("click", () => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        delete crop.cutDesign;
+        saveCropsToStorage();
+      }
+      loadFillControls();
+      scheduleFillPreview();
+    });
+
+    document.getElementById("texCutDownloadBtn").addEventListener("click", () => downloadFillTextures("cut"));
+
+    document.getElementById("texBehavesLike").addEventListener("change", (event) => {
+      const { crop } = getSelectedTexCrop();
+      if (crop) {
+        if (event.target.value) {
+          crop.behavesLike = event.target.value;
+        } else {
+          delete crop.behavesLike;
+        }
+        saveCropsToStorage();
+        updateGeneratedXml(false);
+      }
+      loadBehavesLike();
+      updateWindrowUi();
+      scheduleFillPreview();
     });
 
     document.getElementById("texFoliageCopyBtn").addEventListener("click", () => {

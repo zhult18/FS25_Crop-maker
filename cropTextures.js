@@ -1202,7 +1202,7 @@
     TOBACCO: fill("leafy", 18, 0.5, "#c89a40", "#8a6020", 0.2, 2),
     PINTOBEAN: fill("beans", 1.2, 1.5, "#dcc49a", "#8a5a3a", 0.7),
     NAVYBEAN: fill("beans", 0.9, 1.3, "#f2eee2", "#c0b8a0", 0.1),
-    BLACKBEAN: fill("beans", 1.0, 1.4, "#1e1a1c", "#4a4448"),
+    BLACKBEAN: fill("beans", 1.0, 1.4, "#1e1a1c", "#e8e0d0", 0.3),
     KIDNEYBEAN: fill("beans", 1.6, 1.8, "#7a1e22", "#4a0e12"),
     COWPEA: fill("beans", 0.9, 1.3, "#ece4d0", "#1e1a18", 0.6),
     CHICKPEA: fill("seeds", 0.9, 1.05, "#dcbe88", "#a08050", 0.2),
@@ -1250,6 +1250,13 @@
     // Unknown crop: kernels in the ripe head color.
     const d = normalizeDesign(design);
     return { ...DEFAULT_FILL, color: d.headRipe, color2: shadeHex(d.headRipe, -0.3) };
+  }
+
+  // Cut swath (windrower output, e.g. SOYBEAN_CUT): whole dried plants lying in a swath, with heads or
+  // pods showing as thicker bits in the ripe head color.
+  function getCutPreset(key, design) {
+    const d = normalizeDesign(design);
+    return { ...DEFAULT_STRAW, unitSize: 2, size: 22, elongation: 0.045, color: lerpHex(d.stemRipe, d.leafRipe, 0.3), color2: d.headRipe, accent: 0.55, variation: 0.18 };
   }
 
   function getStrawPreset(key, design) {
@@ -2040,6 +2047,7 @@
     FILL_PRESETS,
     getFillPreset,
     getStrawPreset,
+    getCutPreset,
     generateFillPlaneMaps,
     generateHudIcon,
     encodeDds,
